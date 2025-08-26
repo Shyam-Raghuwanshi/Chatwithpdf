@@ -6,18 +6,19 @@
  */
 
 import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
+import { StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { login } from './lib/appwrite.ts';
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={'light-content'} />
       <AppContent />
     </SafeAreaProvider>
   );
@@ -28,17 +29,23 @@ function AppContent() {
 
   return (
     <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
+      <Text onPressOut={login} style={styles.loginText}>Login</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  loginText: {
+    fontSize: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 50,
+    color: "white"
   },
 });
 
