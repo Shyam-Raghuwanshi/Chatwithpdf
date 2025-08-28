@@ -1,4 +1,13 @@
 {
   "name": "Chatwithpdf",
-  "displayName": "Chatwithpdf"
+  "displayName": "Chatwithpdf",
+  "plugins": [
+    "expo-router"
+  ],
+  "experiments": {
+    "typedRoutes": true
+  },
+  "expo": {
+    "scheme": "appwrite-callback-68a74c460028f0e4cfac"
+  }
 }
