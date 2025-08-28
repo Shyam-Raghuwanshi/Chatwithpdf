@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.chaquo.python"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -115,5 +116,14 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version "3.8"
+    }
+    productFlavors {
+        
     }
 }

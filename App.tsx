@@ -8,6 +8,8 @@ import * as firebaseAuth from "firebase/auth";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { NavigationContainer } from "@react-navigation/native";
 import CustomBox from "react-native-customized-box";
+import { NativeModules } from 'react-native';
+
 
 const firebaseConfig = {
   apiKey: "config.API_KEY",
@@ -290,7 +292,12 @@ const styles = StyleSheet.create({
 
 
 function AppContent() {
-  const Stack = createNativeStackNavigator();
+  // const Stack = createNativeStackNavigator();
+  const { PythonModule } = NativeModules;
+
+  PythonModule.addNumbers(2, 3).then(result => {
+    console.log('Result from Python:', result);
+  });
   return (
     // <NavigationContainer>
     //   <Stack.Navigator>
@@ -302,7 +309,7 @@ function AppContent() {
     // </NavigationContainer>
     <View style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', }}>
       <Text style={{ color: "white" }}>Login Screen adsfkas alsdfja</Text>
-      <Login />
+      {/* <Login /> */}
     </View>
   );
 }
