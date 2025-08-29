@@ -119,6 +119,9 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
+    // iText PDF library for PDF text extraction
+    implementation 'com.itextpdf:itextpdf:5.5.13.3'
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

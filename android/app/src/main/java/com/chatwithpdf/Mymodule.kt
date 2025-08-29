@@ -22,7 +22,7 @@ class PythonModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
         try {
             // If the path refers to an asset, copy it to internal storage first
             // val actualPath = if (pdfPath.startsWith("/android_asset/")) {
-            //     copyAssetToInternalStorage("shyam.pdf")
+            //     copyAssetToInternalStorage("set.pdf")
             // } else {
             //     pdfPath
             // }

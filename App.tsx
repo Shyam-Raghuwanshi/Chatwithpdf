@@ -9,7 +9,10 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { NavigationContainer } from "@react-navigation/native";
 import CustomBox from "react-native-customized-box";
 import { NativeModules } from 'react-native';
-
+import PdfTextExtractor from './utils/PdfTextExtractor';
+import testPdfTextExtractor from './tests/testPdfTextExtractor';
+import { pickPdfFile } from './utils/filePicker';
+testPdfTextExtractor();
 
 const firebaseConfig = {
   apiKey: "config.API_KEY",
@@ -35,7 +38,6 @@ function App() {
     </View>
   );
 }
-
 
 
 function Login() {
@@ -119,7 +121,8 @@ function Login() {
           },
         }}
         requiredConfig={{
-          text: <Text>{emailError}</Text>,
+          text: emailError,
+          style: {}
         }}
         values={getEmailId}
         onChangeText={(value) => {
@@ -148,7 +151,8 @@ function Login() {
           },
         }}
         requiredConfig={{
-          text: <Text>{passwordError}</Text>,
+          text: passwordError,
+          style: {}
         }}
         values={getPassword}
         onChangeText={(value) => {
@@ -313,54 +317,105 @@ const styles = StyleSheet.create({
 function AppContent() {
   // const Stack = createNativeStackNavigator();
   const { PythonModule } = NativeModules;
+  
+  // State for PDF extraction result
+  const [uploading, setUploading] = useState(false);
+  const [extractedText, setExtractedText] = useState<string | null>(null);
+  const [pdfInfo, setPdfInfo] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Test PDF extraction with the shyam.pdf file
-  const testPdfExtraction = () => {
-    // Use Android asset path
-    const pdfPath = '/home/shyam/Desktop/code/Chatwithpdf/n.pdf';
-
-    console.log('Starting PDF extraction...');
-
-    PythonModule.extractPdfText(pdfPath, 'eng').then((result: any) => {
-      try {
-        const parsedResult = JSON.parse(result);
-        console.log('PDF Extraction Result:', parsedResult);
-
-        if (parsedResult.success) {
-
-          console.log('Extracted text:', parsedResult.text);
-          console.log('Extracted err:', parsedResult.error);
-          console.log('Extraction method:', parsedResult.metadata.extraction_method);
-        } else {
-          console.log('PDF extraction failed:', parsedResult.error);
-          // Alert.alert('PDF Extraction Failed', parsedResult.error, [{ text: 'OK' }]);
-        }
-      } catch (e) {
-        console.error('Error parsing PDF extraction result:', e);
-        // Alert.alert('Error', 'Failed to parse PDF extraction result', [{ text: 'OK' }]);
+  // Upload and extract PDF
+  const handleUploadAndExtract = async () => {
+    setUploading(true);
+    setExtractedText(null);
+    setPdfInfo(null);
+    setError(null);
+    try {
+      const picked = await pickPdfFile();
+      if (!picked) {
+        setUploading(false);
+        return;
       }
-    }).catch((error: any) => {
-      console.error('PDF extraction error:', error);
-      // Alert.alert('Error', 'PDF extraction failed: ' + error.message, [{ text: 'OK' }]);
-    });
+      
+      let result;
+      if (picked.uri.startsWith('asset://')) {
+        // Extract from asset file
+        const assetFileName = picked.uri.replace('asset://', '');
+        result = await PdfTextExtractor.extractFromAsset(assetFileName);
+      } else {
+        // Use fileCopyUri if available (Android), else uri
+        const filePath = picked.fileCopyUri || picked.uri;
+        result = await PdfTextExtractor.extractPdfText(filePath);
+      }
+      
+      if (result.success) {
+        setExtractedText(result.text);
+        setPdfInfo(result.metadata);
+      } else {
+        setError(result.error || 'Unknown extraction error');
+      }
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 20 }}>
-      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 30, color: '#333' }}>
-        PDF Text Extraction Test
+      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 10, color: '#333' }}>
+        PDF Text Extraction
+      </Text>
+      <Text style={{ fontSize: 16, color: '#666', marginBottom: 20, textAlign: 'center' }}>
+        Native iText Module
       </Text>
 
       <TouchableOpacity
-        style={[styles.testButton, { backgroundColor: '#2196F3' }]}
-        onPress={testPdfExtraction}
+        style={[styles.testButton, { backgroundColor: uploading ? '#aaa' : '#2196F3' }]}
+        onPress={handleUploadAndExtract}
+        disabled={uploading}
       >
-        <Text style={styles.testButtonText}>📄 Extract Text from PDF</Text>
+        <Text style={styles.testButtonText}>{uploading ? 'Processing...' : '📤 Upload & Extract PDF'}</Text>
       </TouchableOpacity>
 
-      <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginTop: 20, paddingHorizontal: 20 }}>
-        PyPDF2 will be installed automatically if needed.{'\n'}
-        Check the console and alerts for results.
+      {uploading && (
+        <View style={{ alignItems: 'center', marginVertical: 20 }}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={{ marginTop: 10, color: '#666' }}>Extracting text using iText...</Text>
+        </View>
+      )}
+
+      {error && (
+        <View style={{ backgroundColor: '#ffdddd', padding: 12, borderRadius: 8, marginVertical: 10, width: '90%' }}>
+          <Text style={{ color: '#b00020', fontWeight: 'bold' }}>Error:</Text>
+          <Text style={{ color: '#b00020' }}>{error}</Text>
+        </View>
+      )}
+
+      {pdfInfo && (
+        <View style={{ backgroundColor: '#fff', padding: 15, borderRadius: 8, marginVertical: 10, width: '90%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16, color: '#333' }}>📄 PDF Information</Text>
+          <Text style={{ marginBottom: 2 }}>📊 Pages: {pdfInfo.numberOfPages}</Text>
+          <Text style={{ marginBottom: 2 }}>💾 File Size: {(pdfInfo.fileSize / 1024).toFixed(1)} KB</Text>
+          <Text style={{ marginBottom: 2 }}>📋 PDF Version: {pdfInfo.pdfVersion}</Text>
+          {pdfInfo.title && <Text style={{ marginBottom: 2 }}>📝 Title: {pdfInfo.title}</Text>}
+          {pdfInfo.author && <Text style={{ marginBottom: 2 }}>✍️ Author: {pdfInfo.author}</Text>}
+          {pdfInfo.creator && <Text style={{ marginBottom: 2 }}>🔧 Creator: {pdfInfo.creator}</Text>}
+          <Text style={{ marginBottom: 2 }}>🔒 Encrypted: {pdfInfo.isEncrypted ? 'Yes' : 'No'}</Text>
+        </View>
+      )}
+
+      {extractedText && (
+        <View style={{ backgroundColor: '#fff', padding: 15, borderRadius: 8, marginVertical: 10, width: '90%', maxHeight: 300, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 }}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16, color: '#333' }}>📝 Extracted Text</Text>
+          <Text style={{ fontSize: 12, color: '#333', lineHeight: 16 }} numberOfLines={20} ellipsizeMode="tail">{extractedText}</Text>
+        </View>
+      )}
+
+      <Text style={{ fontSize: 12, color: '#888', textAlign: 'center', marginTop: 20, paddingHorizontal: 20 }}>
+        ✨ Using native iText library for high-quality PDF text extraction{'\n'}
+        🚀 Better performance than Python-based extraction{'\n'}
+        📱 Built for React Native Android
       </Text>
     </View>
   );
