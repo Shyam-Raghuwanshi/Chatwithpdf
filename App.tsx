@@ -286,6 +286,25 @@ const styles = StyleSheet.create({
     top: 10,
     marginBottom: 10,
   },
+  testButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    marginVertical: 10,
+    minWidth: 250,
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  testButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
 
 
@@ -295,21 +314,54 @@ function AppContent() {
   // const Stack = createNativeStackNavigator();
   const { PythonModule } = NativeModules;
 
-  PythonModule.addNumbers(2, 3).then(result => {
-    console.log('Result from Python:', result);
-  });
+  // Test PDF extraction with the shyam.pdf file
+  const testPdfExtraction = () => {
+    // Use Android asset path
+    const pdfPath = '/home/shyam/Desktop/code/Chatwithpdf/n.pdf';
+
+    console.log('Starting PDF extraction...');
+
+    PythonModule.extractPdfText(pdfPath, 'eng').then((result: any) => {
+      try {
+        const parsedResult = JSON.parse(result);
+        console.log('PDF Extraction Result:', parsedResult);
+
+        if (parsedResult.success) {
+
+          console.log('Extracted text:', parsedResult.text);
+          console.log('Extracted err:', parsedResult.error);
+          console.log('Extraction method:', parsedResult.metadata.extraction_method);
+        } else {
+          console.log('PDF extraction failed:', parsedResult.error);
+          // Alert.alert('PDF Extraction Failed', parsedResult.error, [{ text: 'OK' }]);
+        }
+      } catch (e) {
+        console.error('Error parsing PDF extraction result:', e);
+        // Alert.alert('Error', 'Failed to parse PDF extraction result', [{ text: 'OK' }]);
+      }
+    }).catch((error: any) => {
+      console.error('PDF extraction error:', error);
+      // Alert.alert('Error', 'PDF extraction failed: ' + error.message, [{ text: 'OK' }]);
+    });
+  };
+
   return (
-    // <NavigationContainer>
-    //   <Stack.Navigator>
-    //     <Stack.Screen
-    //       name="Login"
-    //       component={Login}
-    //       options={{ headerShown: false }} />
-    //   </Stack.Navigator>
-    // </NavigationContainer>
-    <View style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', }}>
-      <Text style={{ color: "white" }}>Login Screen adsfkas alsdfja</Text>
-      {/* <Login /> */}
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 20 }}>
+      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 30, color: '#333' }}>
+        PDF Text Extraction Test
+      </Text>
+
+      <TouchableOpacity
+        style={[styles.testButton, { backgroundColor: '#2196F3' }]}
+        onPress={testPdfExtraction}
+      >
+        <Text style={styles.testButtonText}>📄 Extract Text from PDF</Text>
+      </TouchableOpacity>
+
+      <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginTop: 20, paddingHorizontal: 20 }}>
+        PyPDF2 will be installed automatically if needed.{'\n'}
+        Check the console and alerts for results.
+      </Text>
     </View>
   );
 }

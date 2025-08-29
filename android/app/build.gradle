@@ -85,6 +85,13 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+        python {
+                version "3.8"
+                pip {
+                    install "PyPDF2==3.0.1"
+            }
+        }
     }
     signingConfigs {
         debug {
@@ -116,14 +123,5 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
-    }
-}
-
-chaquopy {
-    defaultConfig {
-        version "3.8"
-    }
-    productFlavors {
-        
     }
 }
