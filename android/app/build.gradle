@@ -1,7 +1,6 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
-apply plugin: "com.chaquo.python"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -85,13 +84,6 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
-
-        python {
-                version "3.8"
-                pip {
-                    install "PyPDF2==3.0.1"
-            }
-        }
     }
     signingConfigs {
         debug {

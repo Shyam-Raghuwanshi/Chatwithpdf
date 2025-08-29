@@ -5,14 +5,10 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import * as firebaseAuth from "firebase/auth";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { NavigationContainer } from "@react-navigation/native";
 import CustomBox from "react-native-customized-box";
 import { NativeModules } from 'react-native';
 import PdfTextExtractor from './utils/PdfTextExtractor';
-import testPdfTextExtractor from './tests/testPdfTextExtractor';
-import { pickPdfFile } from './utils/filePicker';
-testPdfTextExtractor();
+// import { pick } from '@react-native-documents/picker'
 
 const firebaseConfig = {
   apiKey: "config.API_KEY",
@@ -316,14 +312,13 @@ const styles = StyleSheet.create({
 
 function AppContent() {
   // const Stack = createNativeStackNavigator();
-  const { PythonModule } = NativeModules;
-  
+
   // State for PDF extraction result
   const [uploading, setUploading] = useState(false);
   const [extractedText, setExtractedText] = useState<string | null>(null);
   const [pdfInfo, setPdfInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-
+  const [filePath, setFilePath] = useState<string>('');
   // Upload and extract PDF
   const handleUploadAndExtract = async () => {
     setUploading(true);
@@ -331,29 +326,19 @@ function AppContent() {
     setPdfInfo(null);
     setError(null);
     try {
-      const picked = await pickPdfFile();
-      if (!picked) {
-        setUploading(false);
-        return;
-      }
-      
-      let result;
-      if (picked.uri.startsWith('asset://')) {
-        // Extract from asset file
-        const assetFileName = picked.uri.replace('asset://', '');
-        result = await PdfTextExtractor.extractFromAsset(assetFileName);
-      } else {
-        // Use fileCopyUri if available (Android), else uri
-        const filePath = picked.fileCopyUri || picked.uri;
-        result = await PdfTextExtractor.extractPdfText(filePath);
-      }
-      
-      if (result.success) {
-        setExtractedText(result.text);
-        setPdfInfo(result.metadata);
-      } else {
-        setError(result.error || 'Unknown extraction error');
-      }
+      // const [result] = await pick({
+      //   mode: 'open',
+      // })
+      // console.log(result)
+      // const res = await PdfTextExtractor.extractPdfText(result.uri);
+
+      // console.log('Extraction result:', res);
+      // if (result.) {
+      //   setExtractedText(result.text);
+      //   setPdfInfo(result.metadata);
+      // } else {
+      //   setError(result.error || 'Unknown extraction error');
+      // }
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -382,26 +367,6 @@ function AppContent() {
         <View style={{ alignItems: 'center', marginVertical: 20 }}>
           <ActivityIndicator size="large" color="#2196F3" />
           <Text style={{ marginTop: 10, color: '#666' }}>Extracting text using iText...</Text>
-        </View>
-      )}
-
-      {error && (
-        <View style={{ backgroundColor: '#ffdddd', padding: 12, borderRadius: 8, marginVertical: 10, width: '90%' }}>
-          <Text style={{ color: '#b00020', fontWeight: 'bold' }}>Error:</Text>
-          <Text style={{ color: '#b00020' }}>{error}</Text>
-        </View>
-      )}
-
-      {pdfInfo && (
-        <View style={{ backgroundColor: '#fff', padding: 15, borderRadius: 8, marginVertical: 10, width: '90%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 }}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16, color: '#333' }}>📄 PDF Information</Text>
-          <Text style={{ marginBottom: 2 }}>📊 Pages: {pdfInfo.numberOfPages}</Text>
-          <Text style={{ marginBottom: 2 }}>💾 File Size: {(pdfInfo.fileSize / 1024).toFixed(1)} KB</Text>
-          <Text style={{ marginBottom: 2 }}>📋 PDF Version: {pdfInfo.pdfVersion}</Text>
-          {pdfInfo.title && <Text style={{ marginBottom: 2 }}>📝 Title: {pdfInfo.title}</Text>}
-          {pdfInfo.author && <Text style={{ marginBottom: 2 }}>✍️ Author: {pdfInfo.author}</Text>}
-          {pdfInfo.creator && <Text style={{ marginBottom: 2 }}>🔧 Creator: {pdfInfo.creator}</Text>}
-          <Text style={{ marginBottom: 2 }}>🔒 Encrypted: {pdfInfo.isEncrypted ? 'Yes' : 'No'}</Text>
         </View>
       )}
 
