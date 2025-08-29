@@ -30,11 +30,6 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
   const [showChat, setShowChat] = useState(false);
   const [userDocuments, setUserDocuments] = useState<Document[]>([]);
 
-  // Initialize RAG service
-  useEffect(() => {
-    initializeRAGService();
-  }, []);
-
   // Load user documents
   useEffect(() => {
     if (ragService) {
@@ -68,27 +63,26 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
 
       const rag = new RAGService(config);
       await rag.initialize();
-      
+
       // Reinitialize the database connection to pick up OAuth session
-      console.log('Reinitializing RAG service for authenticated user...');
-      rag.reinitializeAfterAuth();
-      
-      setRagService(rag);
+      // console.log('Reinitializing RAG service for authenticated user...');
+      // rag.reinitializeAfterAuth();
+      return rag;
     } catch (error) {
       console.error('Error initializing RAG service:', error);
       Alert.alert('Error', 'Failed to initialize document processing service.');
     }
-  };  const loadUserDocuments = async () => {
+  }; const loadUserDocuments = async () => {
     if (!ragService) return;
 
     try {
       // Test authentication first
       const authTest = await ragService.testDatabaseAuth();
       console.log('Database auth test:', authTest);
-      
+
       if (!authTest.isAuthenticated) {
         console.log('User appears as guest, but collections are accessible. Proceeding...');
-        
+
         // Run collection access test to verify collections work
         console.log('Running collection access diagnostics...');
         await ragService.testCollectionAccess();
@@ -98,7 +92,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       const documents = await ragService.getUserDocuments(userId);
       setUserDocuments(documents);
       console.log('Successfully loaded user documents:', documents.length);
-      
+
     } catch (error) {
       console.error('Error loading user documents:', error);
       Alert.alert('Error', 'Failed to load documents. Please try again.');
@@ -111,7 +105,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
     setPdfInfo(null);
     setError(null);
     setProcessedDocument(null);
-    
+
     try {
       const result = await DocumentPicker.pickSingle({
         type: [DocumentPicker.types.pdf]
@@ -120,20 +114,22 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       console.log('Extraction result:', result);
       console.log('File URI:', result?.uri);
       console.log("Starting PDF text extraction...");
-      
+
       const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
       console.log('Extraction response:', response);
-      
+
       if (!response.success || !response.text) {
         throw new Error(response.error || 'Failed to extract text from PDF');
       }
 
       setExtractedText(response.text);
       setPdfInfo(response.metadata);
-
       // Process document through RAG pipeline if service is available
+      const ragService = await initializeRAGService()
+      console.log(ragService, response.text, "------------")
       if (ragService && response.text) {
-        await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '');
+        console.log("inside if ----------")
+        await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '', ragService);
       }
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -143,17 +139,18 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
     }
   };
 
-  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string) => {
-    if (!ragService) {
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string, rag: RAGService) => {
+
+    if (!rag) {
       Alert.alert('Error', 'Document processing service not available');
       return;
     }
 
+    console.log('Processing document through RAG pipeline...');
     setProcessing(true);
     try {
-      console.log('Processing document through RAG pipeline...');
-      
-      const result: ProcessDocumentResult = await ragService.processDocument(
+
+      const result: ProcessDocumentResult = await rag.processDocument(
         userId,
         title,
         text,
@@ -162,19 +159,19 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
 
       if (result.success) {
         console.log(`Document processed successfully: ${result.chunksProcessed} chunks, ${result.totalTokensUsed} tokens used`);
-        
+
         // Reload user documents
         await loadUserDocuments();
-        
+
         // Set the processed document for chat
-        const documents = await ragService.getUserDocuments(userId);
+        const documents = await rag.getUserDocuments(userId);
         const newDocument = documents.find(doc => doc.$id === result.documentId);
         if (newDocument) {
           setProcessedDocument(newDocument);
         }
 
         Alert.alert(
-          'Success!', 
+          'Success!',
           `Document processed successfully!\n\n• ${result.chunksProcessed} text chunks created\n• ${result.totalTokensUsed} tokens used\n\nYou can now chat with this document.`,
           [
             { text: 'OK', style: 'default' },
@@ -230,8 +227,8 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
           <View style={styles.documentsSection}>
             <Text style={styles.sectionTitle}>📚 Your Documents</Text>
             {userDocuments.map(doc => (
-              <TouchableOpacity 
-                key={doc.$id} 
+              <TouchableOpacity
+                key={doc.$id}
                 style={styles.documentItem}
                 onPress={() => handleChatWithDocument(doc)}
               >
@@ -338,10 +335,10 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
             <ScrollView style={styles.textScrollView} nestedScrollEnabled>
               <Text style={styles.extractedText}>{extractedText}</Text>
             </ScrollView>
-            
+
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => {
                   Alert.alert('Feature Coming Soon', 'Text-to-speech feature will be available soon!');
@@ -349,8 +346,8 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
               >
                 <Text style={styles.actionButtonText}>🔊 Read Aloud</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.actionButton, styles.chatActionButton]}
                 onPress={() => {
                   if (processedDocument) {

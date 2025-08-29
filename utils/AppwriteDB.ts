@@ -392,7 +392,7 @@ export class AppwriteDB {
       if (!profile) {
         return false;
       }
-
+      console.log(profile, "profile")
       return (profile.tokensUsed + requiredTokens) <= profile.tokensLimit;
     } catch (error) {
       console.error('Error checking token limit:', error);

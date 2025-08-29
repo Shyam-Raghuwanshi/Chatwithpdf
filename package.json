@@ -23,8 +23,8 @@
     "react": "19.1.0",
     "react-native": "0.81.0",
     "react-native-appwrite": "^0.10.0",
-    "react-native-crypto": "^2.2.1",
     "react-native-customized-box": "^1.1.0",
+    "react-native-get-random-values": "^1.11.0",
     "react-native-linking": "^0.0.0",
     "stream-browserify": "^3.0.0",
     "uuid": "^11.1.0"
