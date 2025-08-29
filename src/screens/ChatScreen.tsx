@@ -71,7 +71,7 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
           apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.j2tZ6wMkbgQfnahnj3TT_ojnAqHhv-hoJHH7-7TqbJg',
         },
         voyageAI: {
-          apiKey: 'pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp',
+          apiKey: 'pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1',
         },
         chunking: {
           chunkSize: 600,

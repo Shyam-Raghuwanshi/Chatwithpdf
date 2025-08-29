@@ -56,7 +56,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
           apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE',
         },
         voyageAI: {
-          apiKey: 'pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp',
+          apiKey: 'pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1',
         },
         chunking: {
           chunkSize: 600,
@@ -68,21 +68,40 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
 
       const rag = new RAGService(config);
       await rag.initialize();
+      
+      // Reinitialize the database connection to pick up OAuth session
+      console.log('Reinitializing RAG service for authenticated user...');
+      rag.reinitializeAfterAuth();
+      
       setRagService(rag);
     } catch (error) {
       console.error('Error initializing RAG service:', error);
       Alert.alert('Error', 'Failed to initialize document processing service.');
     }
-  };
-
-  const loadUserDocuments = async () => {
+  };  const loadUserDocuments = async () => {
     if (!ragService) return;
 
     try {
+      // Test authentication first
+      const authTest = await ragService.testDatabaseAuth();
+      console.log('Database auth test:', authTest);
+      
+      if (!authTest.isAuthenticated) {
+        console.log('User appears as guest, but collections are accessible. Proceeding...');
+        
+        // Run collection access test to verify collections work
+        console.log('Running collection access diagnostics...');
+        await ragService.testCollectionAccess();
+      }
+
+      // Proceed to get documents since collections are accessible
       const documents = await ragService.getUserDocuments(userId);
       setUserDocuments(documents);
+      console.log('Successfully loaded user documents:', documents.length);
+      
     } catch (error) {
       console.error('Error loading user documents:', error);
+      Alert.alert('Error', 'Failed to load documents. Please try again.');
     }
   };
 

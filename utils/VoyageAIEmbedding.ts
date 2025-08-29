@@ -30,12 +30,8 @@ export class VoyageAIEmbedding {
   private config: VoyageAIConfig;
 
   constructor(config: Partial<VoyageAIConfig> = {}) {
-    const VOYAGE_API_KEY =
-      process.env.EXPO_PUBLIC_VOYAGEAI_API_KEY ||
-      "pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp";
-    
     this.config = {
-      apiKey: config.apiKey || VOYAGE_API_KEY,
+      apiKey: config.apiKey || process.env.EXPO_PUBLIC_VOYAGEAI_API_KEY || "pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1",
       apiUrl: config.apiUrl || "https://api.voyageai.com/v1/embeddings",
       model: config.model || "voyage-large-2",
       timeout: config.timeout || 30000,
@@ -103,13 +99,13 @@ export class VoyageAIEmbedding {
 
       // Sort embeddings by index to maintain order
       const sortedData = response.data.data.sort((a, b) => a.index - b.index);
-      
+
       return sortedData.map(item => item.embedding);
     } catch (error: any) {
       if (error.response) {
-        const errorMessage = error.response.data?.error?.message || 
-                           error.response.data?.message || 
-                           `HTTP ${error.response.status}: ${error.response.statusText}`;
+        const errorMessage = error.response.data?.error?.message ||
+          error.response.data?.message ||
+          `HTTP ${error.response.status}: ${error.response.statusText}`;
         throw new Error(`VoyageAI API Error: ${errorMessage}`);
       } else if (error.request) {
         throw new Error('Network error: Unable to reach VoyageAI API');
@@ -135,7 +131,7 @@ export class VoyageAIEmbedding {
         return await this.generateEmbeddings(texts, inputType);
       } catch (error: any) {
         lastError = error;
-        
+
         // Don't retry on authentication or bad request errors
         if (error.message.includes('401') || error.message.includes('400')) {
           throw error;
@@ -165,11 +161,11 @@ export class VoyageAIEmbedding {
     }
 
     const allEmbeddings: number[][] = [];
-    
+
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
       console.log(`Processing embedding batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)}`);
-      
+
       try {
         const batchEmbeddings = await this.generateEmbeddingsWithRetry(batch, inputType);
         allEmbeddings.push(...batchEmbeddings);

@@ -62,6 +62,48 @@ export class RAGService {
   }
 
   /**
+   * Reinitialize after authentication (useful for OAuth flows)
+   */
+  reinitializeAfterAuth(): void {
+    this.appwriteDB = new AppwriteDB(this.config.appwrite);
+  }
+
+  /**
+   * Set authentication session for database operations
+   */
+  setAuthSession(session: string): void {
+    this.appwriteDB.setSession(session);
+  }
+
+  /**
+   * Test database authentication
+   */
+  async testDatabaseAuth(): Promise<{ isAuthenticated: boolean; user?: any; error?: string }> {
+    return this.appwriteDB.testAuthentication();
+  }
+
+  /**
+   * Test collection access and permissions
+   */
+  async testCollectionAccess(): Promise<void> {
+    return this.appwriteDB.testCollectionAccess();
+  }
+
+  /**
+   * Try to create OAuth session for database access
+   */
+  async createDatabaseOAuthSession(provider: string = 'google'): Promise<void> {
+    return this.appwriteDB.createOAuthSession(provider);
+  }
+
+  /**
+   * Try to fix authentication by creating anonymous session
+   */
+  async fixAuthentication(): Promise<void> {
+    return this.appwriteDB.createAnonymousSessionAndAuth();
+  }
+
+  /**
    * Initialize the RAG system
    */
   async initialize(): Promise<void> {

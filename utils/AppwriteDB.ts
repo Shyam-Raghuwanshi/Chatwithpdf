@@ -1,4 +1,6 @@
-import { Client, Databases, ID, Query } from 'appwrite';
+import { Client, Databases, ID, Query, Account } from 'appwrite';
+import { appwriteClient } from './AppwriteClient';
+import { authSessionManager } from './AuthSessionManager';
 
 export interface UserProfile {
   $id?: string;
@@ -46,25 +48,129 @@ export interface AppwriteConfig {
 }
 
 export class AppwriteDB {
-  private client: Client;
   private databases: Databases;
+  private account: Account;
   private config: AppwriteConfig;
 
   // Collection IDs (should match your Appwrite setup)
   private readonly COLLECTIONS = {
-    USER_PROFILES: 'userProfiles',
-    DOCUMENTS: 'documents',
-    CHATS: 'chats',
-    PLANS: 'plans',
+    USER_PROFILES: '68a75893002ed0b3d872',
+    DOCUMENTS: '68a75b180016b4e52d00',
+    CHATS: '68a7662100185c305b45',
+    PLANS: '68a766cb0021ae9a983c',
   };
 
   constructor(config: AppwriteConfig) {
     this.config = config;
-    this.client = new Client()
-      .setEndpoint(config.endpoint)
-      .setProject(config.projectId);
     
-    this.databases = new Databases(this.client);
+    // Always reinitialize to ensure fresh session state
+    appwriteClient.reinitialize(config.endpoint, config.projectId);
+    authSessionManager.initialize(config.endpoint, config.projectId);
+    
+    this.databases = appwriteClient.getDatabases();
+    this.account = appwriteClient.getAccount();
+  }
+
+  /**
+   * Test collection access and provide detailed error information
+   */
+  async testCollectionAccess(): Promise<void> {
+    console.log('\n=== COLLECTION ACCESS TEST ===');
+    
+    const collections = [
+      { id: this.COLLECTIONS.DOCUMENTS, name: 'Documents' },
+      { id: this.COLLECTIONS.CHATS, name: 'Chats' },
+      { id: this.COLLECTIONS.PLANS, name: 'Plans' },
+      { id: this.COLLECTIONS.USER_PROFILES, name: 'UserProfile' },
+    ];
+
+    for (const collection of collections) {
+      try {
+        console.log(`\nTesting ${collection.name} collection (${collection.id})...`);
+        const result = await this.databases.listDocuments(
+          this.config.databaseId,
+          collection.id,
+          [Query.limit(1)]
+        );
+        console.log(`✅ ${collection.name}: Access OK (${result.documents.length} documents found)`);
+      } catch (error: any) {
+        console.log(`❌ ${collection.name}: Access FAILED`);
+        console.log(`   Error: ${error.message}`);
+        
+        if (error.message?.includes('missing scopes') || error.message?.includes('guests')) {
+          console.log(`   ⚠️  PERMISSION ISSUE: Collection permissions not configured properly`);
+          console.log(`   To fix this:`);
+          console.log(`   1. Go to Appwrite Console`);
+          console.log(`   2. Navigate to Databases > ${this.config.databaseId}`);
+          console.log(`   3. Click on "${collection.name}" collection`);
+          console.log(`   4. Go to Settings > Permissions`);
+          console.log(`   5. Add these permissions:`);
+          console.log(`      - Read: Any (for guests) or Users (for authenticated only)`);
+          console.log(`      - Create: Users (for authenticated users)`);
+          console.log(`      - Update: Users (for authenticated users)`);
+          console.log(`      - Delete: Users (for authenticated users)`);
+        }
+      }
+    }
+    console.log('\n=== END COLLECTION ACCESS TEST ===\n');
+  }
+
+  /**
+   * Test authentication status
+   */
+  async testAuthentication(): Promise<{ isAuthenticated: boolean; user?: any; error?: string }> {
+    try {
+      const user = await this.account.get();
+      return { isAuthenticated: true, user };
+    } catch (error: any) {
+      return { isAuthenticated: false, error: error.message };
+    }
+  }
+
+  /**
+   * Try to create an OAuth session directly from JavaScript client
+   * This bypasses the native module and creates a session the JavaScript client can use
+   */
+  async createOAuthSession(provider: string = 'google'): Promise<void> {
+    try {
+      // Create OAuth2 session directly with JavaScript client
+      await this.account.createOAuth2Session(
+        provider as any,
+        'chatwithpdf://oauth-success', // Success redirect
+        'chatwithpdf://oauth-failure'   // Failure redirect
+      );
+    } catch (error: any) {
+      console.error('OAuth session creation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Try to create an anonymous session and then authenticate with OAuth
+   * This is a workaround for the native OAuth session not being shared
+   */
+  async createAnonymousSessionAndAuth(): Promise<void> {
+    try {
+      // First, try to create an anonymous session to get access
+      await this.account.createAnonymousSession();
+      console.log('Anonymous session created');
+    } catch (error: any) {
+      console.log('Anonymous session creation failed or already exists:', error.message);
+    }
+  }
+
+  /**
+   * Initialize and ensure user is authenticated
+   */
+  async ensureAuthenticated(): Promise<void> {
+    try {
+      // Try to get current account to verify authentication
+      const user = await this.account.get();
+      console.log('User authenticated:', user.email);
+    } catch (error: any) {
+      console.error('Authentication error:', error);
+      throw new Error(`User not authenticated: ${error.message}`);
+    }
   }
 
   /**
@@ -155,10 +261,14 @@ export class AppwriteDB {
   }
 
   /**
-   * Get documents for a user
+   * Get documents for a user (updated with working permissions)
    */
   async getUserDocuments(userId: string, limit: number = 50): Promise<Document[]> {
     try {
+      console.log('Attempting to get user documents for:', userId);
+      
+      // Since collections are now accessible, proceed directly with the query
+      // The user is currently in guest mode, but collections allow guest access
       const result = await this.databases.listDocuments(
         this.config.databaseId,
         this.COLLECTIONS.DOCUMENTS,
@@ -169,8 +279,10 @@ export class AppwriteDB {
         ]
       );
 
+      console.log('Documents fetched successfully:', result.documents.length);
       return result.documents.map(doc => this.transformDocument(doc));
-    } catch (error) {
+      
+    } catch (error: any) {
       console.error('Error getting user documents:', error);
       throw new Error(`Failed to get user documents: ${error}`);
     }
@@ -366,7 +478,7 @@ export class AppwriteDB {
    * Set authentication session
    */
   setSession(session: string): void {
-    this.client.setSession(session);
+    appwriteClient.setSession(session);
   }
 }
 

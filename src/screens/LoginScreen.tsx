@@ -56,22 +56,55 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     try {
       setLoading(true);
       
-      // Try without specifying scopes to use Google's default scopes
-      const result = await auth.signInWithOAuth('google');
+      // Use the JavaScript Appwrite client directly for OAuth instead of native module
+      // This ensures session consistency between auth and database operations
+      const { appwriteClient } = require('../../utils/AppwriteClient');
       
-      if (result.type === 'success') {
-        // OAuth flow completed successfully
-        try {
-          const user = await auth.getCurrentUser();
-          Alert.alert('Success', 'Signed in with Google successfully!');
-          onLoginSuccess(user);
-        } catch (error: any) {
-          console.log('Error getting user after OAuth:', error);
-          Alert.alert('Error', 'Failed to get user information after OAuth. Please try again.');
-        }
-      } else {
-        Alert.alert('Error', 'Google sign in was cancelled or failed');
+      // Initialize the client if not already done
+      if (!appwriteClient.getIsInitialized()) {
+        appwriteClient.initialize(
+          'https://nyc.cloud.appwrite.io/v1',
+          '68a74c460028f0e4cfac'
+        );
       }
+      
+      const account = appwriteClient.getAccount();
+      
+      try {
+        // Try to create OAuth2 session directly with JavaScript client
+        // This will open the browser for authentication
+        await account.createOAuth2Session(
+          'google',
+          'chatwithpdf://auth/success', // Success URL scheme
+          'chatwithpdf://auth/failure'   // Failure URL scheme  
+        );
+        
+        // After OAuth completes, get the user
+        const user = await account.get();
+        Alert.alert('Success', 'Signed in with Google successfully!');
+        onLoginSuccess(user);
+        
+      } catch (oauthError: any) {
+        console.error('Direct OAuth error:', oauthError);
+        
+        // Fallback to native module if direct OAuth fails
+        console.log('Falling back to native OAuth...');
+        const result = await auth.signInWithOAuth('google');
+        
+        if (result.type === 'success') {
+          try {
+            const user = await auth.getCurrentUser();
+            Alert.alert('Success', 'Signed in with Google successfully!');
+            onLoginSuccess(user);
+          } catch (error: any) {
+            console.log('Error getting user after OAuth:', error);
+            Alert.alert('Error', 'Failed to get user information after OAuth. Please try again.');
+          }
+        } else {
+          Alert.alert('Error', 'Google sign in was cancelled or failed');
+        }
+      }
+      
     } catch (error: any) {
       console.error('Google sign in error:', error);
       Alert.alert('Error', `Google sign in failed: ${error.message}`);

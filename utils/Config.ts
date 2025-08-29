@@ -37,15 +37,13 @@ export const defaultConfig: AppConfig = {
       },
       qdrant: {
             // Replace with your Qdrant cluster URL
-            url: process.env.EXPO_PUBLIC_QDRANT_URL || 'https://your-cluster-url.qdrant.tech:6333',
+            url: 'https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io:6333',
             // API key is provided in the main RAG service
-            apiKey: process.env.EXPO_PUBLIC_QDRANT_API_KEY ||
-                  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE",
+            apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE",
       },
       voyageAI: {
             // API key is provided in the main RAG service
-            apiKey: process.env.EXPO_PUBLIC_VOYAGEAI_API_KEY ||
-                  "pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp",
+            apiKey: "pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp",
             model: 'voyage-large-2',
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
       },
@@ -68,10 +66,10 @@ export const COLLECTION_NAMES = {
       // Qdrant collection for storing document embeddings
       EMBEDDINGS: 'document_embeddings',
       // Appwrite collections (these should match your database schema)
-      USER_PROFILES: 'userProfiles',
-      DOCUMENTS: 'documents',
-      CHATS: 'chats',
-      PLANS: 'plans',
+      USER_PROFILES: '68a75893002ed0b3d872',
+      DOCUMENTS: '68a75b180016b4e52d00',
+      CHATS: '68a7662100185c305b45',
+      PLANS: '68a766cb0021ae9a983c',
 } as const;
 
 /**

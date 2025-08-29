@@ -1,0 +1,79 @@
+import { Client, Account, Databases } from 'appwrite';
+
+class AppwriteClientSingleton {
+  private static instance: AppwriteClientSingleton;
+  private client: Client | null = null;
+  private account: Account | null = null;
+  private databases: Databases | null = null;
+  private isInitialized = false;
+
+  private constructor() {}
+
+  static getInstance(): AppwriteClientSingleton {
+    if (!AppwriteClientSingleton.instance) {
+      AppwriteClientSingleton.instance = new AppwriteClientSingleton();
+    }
+    return AppwriteClientSingleton.instance;
+  }
+
+  initialize(endpoint: string, projectId: string): void {
+    this.client = new Client()
+      .setEndpoint(endpoint)
+      .setProject(projectId);
+    
+    this.account = new Account(this.client);
+    this.databases = new Databases(this.client);
+    this.isInitialized = true;
+  }
+
+  /**
+   * Reinitialize with fresh client (useful after OAuth)
+   */
+  reinitialize(endpoint: string, projectId: string): void {
+    console.log('Reinitializing Appwrite client...');
+    this.client = new Client()
+      .setEndpoint(endpoint)
+      .setProject(projectId);
+    
+    this.account = new Account(this.client);
+    this.databases = new Databases(this.client);
+    this.isInitialized = true;
+  }
+
+  getClient(): Client {
+    if (!this.client) {
+      throw new Error('Appwrite client not initialized');
+    }
+    return this.client;
+  }
+
+  getAccount(): Account {
+    if (!this.account) {
+      throw new Error('Appwrite client not initialized');
+    }
+    return this.account;
+  }
+
+  getDatabases(): Databases {
+    if (!this.databases) {
+      throw new Error('Appwrite client not initialized');
+    }
+    return this.databases;
+  }
+
+  getIsInitialized(): boolean {
+    return this.isInitialized;
+  }
+
+  /**
+   * Set session for all Appwrite services
+   */
+  setSession(session: string): void {
+    if (this.client) {
+      this.client.setSession(session);
+    }
+  }
+}
+
+export const appwriteClient = AppwriteClientSingleton.getInstance();
+export default appwriteClient;
