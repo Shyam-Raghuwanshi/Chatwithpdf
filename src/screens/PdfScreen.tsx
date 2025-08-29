@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,18 +11,87 @@ import {
 } from 'react-native';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
+import RAGService, { ProcessDocumentResult } from '../../utils/RAGService';
+import ChatScreen from './ChatScreen';
+import { Document } from '../../utils/AppwriteDB';
 
-const PdfScreen: React.FC = () => {
+interface Props {
+  userId: string; // Pass this from your auth system
+}
+
+const PdfScreen: React.FC<Props> = ({ userId }) => {
   const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [extractedText, setExtractedText] = useState<string | null>(null);
   const [pdfInfo, setPdfInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ragService, setRagService] = useState<RAGService | null>(null);
+  const [processedDocument, setProcessedDocument] = useState<Document | null>(null);
+  const [showChat, setShowChat] = useState(false);
+  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
+
+  // Initialize RAG service
+  useEffect(() => {
+    initializeRAGService();
+  }, []);
+
+  // Load user documents
+  useEffect(() => {
+    if (ragService) {
+      loadUserDocuments();
+    }
+  }, [ragService]);
+
+  const initializeRAGService = async () => {
+    try {
+      // Configure your endpoints here
+      const config = {
+        appwrite: {
+          endpoint: 'https://nyc.cloud.appwrite.io/v1', // Update with your Appwrite endpoint
+          projectId: '68a74c460028f0e4cfac', // Update with your Appwrite project ID
+          databaseId: '68a7552c0009a09693b0', // Update with your database ID
+        },
+        qdrant: {
+          url: 'https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io', // Update with your Qdrant cluster URL
+          apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE',
+        },
+        voyageAI: {
+          apiKey: 'pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp',
+        },
+        chunking: {
+          chunkSize: 600,
+          overlap: 200,
+          preserveParagraphs: true,
+          minChunkSize: 100,
+        },
+      };
+
+      const rag = new RAGService(config);
+      await rag.initialize();
+      setRagService(rag);
+    } catch (error) {
+      console.error('Error initializing RAG service:', error);
+      Alert.alert('Error', 'Failed to initialize document processing service.');
+    }
+  };
+
+  const loadUserDocuments = async () => {
+    if (!ragService) return;
+
+    try {
+      const documents = await ragService.getUserDocuments(userId);
+      setUserDocuments(documents);
+    } catch (error) {
+      console.error('Error loading user documents:', error);
+    }
+  };
 
   const handleUploadAndExtract = async () => {
     setUploading(true);
     setExtractedText(null);
     setPdfInfo(null);
     setError(null);
+    setProcessedDocument(null);
     
     try {
       const result = await DocumentPicker.pickSingle({
@@ -36,8 +105,17 @@ const PdfScreen: React.FC = () => {
       const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
       console.log('Extraction response:', response);
       
+      if (!response.success || !response.text) {
+        throw new Error(response.error || 'Failed to extract text from PDF');
+      }
+
       setExtractedText(response.text);
       setPdfInfo(response.metadata);
+
+      // Process document through RAG pipeline if service is available
+      if (ragService && response.text) {
+        await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '');
+      }
     } catch (e: any) {
       setError(e?.message || String(e));
       Alert.alert('Error', e?.message || 'Failed to extract PDF text');
@@ -46,41 +124,140 @@ const PdfScreen: React.FC = () => {
     }
   };
 
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string) => {
+    if (!ragService) {
+      Alert.alert('Error', 'Document processing service not available');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      console.log('Processing document through RAG pipeline...');
+      
+      const result: ProcessDocumentResult = await ragService.processDocument(
+        userId,
+        title,
+        text,
+        fileUri // Using file URI as fileId for now
+      );
+
+      if (result.success) {
+        console.log(`Document processed successfully: ${result.chunksProcessed} chunks, ${result.totalTokensUsed} tokens used`);
+        
+        // Reload user documents
+        await loadUserDocuments();
+        
+        // Set the processed document for chat
+        const documents = await ragService.getUserDocuments(userId);
+        const newDocument = documents.find(doc => doc.$id === result.documentId);
+        if (newDocument) {
+          setProcessedDocument(newDocument);
+        }
+
+        Alert.alert(
+          'Success!', 
+          `Document processed successfully!\n\n• ${result.chunksProcessed} text chunks created\n• ${result.totalTokensUsed} tokens used\n\nYou can now chat with this document.`,
+          [
+            { text: 'OK', style: 'default' },
+            { text: 'Start Chat', style: 'default', onPress: () => setShowChat(true) }
+          ]
+        );
+      } else {
+        throw new Error(result.error || 'Failed to process document');
+      }
+    } catch (error: any) {
+      console.error('Error processing document:', error);
+      Alert.alert('Processing Error', error.message || 'Failed to process document for chat');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleClearResults = () => {
     setExtractedText(null);
     setPdfInfo(null);
     setError(null);
+    setProcessedDocument(null);
   };
+
+  const handleChatWithDocument = (document: Document) => {
+    setProcessedDocument(document);
+    setShowChat(true);
+  };
+
+  if (showChat) {
+    return (
+      <ChatScreen
+        userId={userId}
+        selectedDocument={processedDocument || undefined}
+        onBack={() => setShowChat(false)}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>PDF Text Extraction</Text>
+          <Text style={styles.title}>PDF Chat with RAG</Text>
           <Text style={styles.subtitle}>
-            Upload and extract text from PDF documents using native iText library
+            Upload PDFs, extract text, and chat with your documents using AI
           </Text>
         </View>
 
+        {/* Existing Documents */}
+        {userDocuments.length > 0 && (
+          <View style={styles.documentsSection}>
+            <Text style={styles.sectionTitle}>📚 Your Documents</Text>
+            {userDocuments.map(doc => (
+              <TouchableOpacity 
+                key={doc.$id} 
+                style={styles.documentItem}
+                onPress={() => handleChatWithDocument(doc)}
+              >
+                <View style={styles.documentInfo}>
+                  <Text style={styles.documentTitle}>{doc.title}</Text>
+                  <Text style={styles.documentDate}>
+                    {doc.createdAt.toLocaleDateString()}
+                  </Text>
+                </View>
+                <Text style={styles.chatButton}>💬 Chat</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* Upload Button */}
         <TouchableOpacity
-          style={[styles.uploadButton, uploading && styles.disabledButton]}
+          style={[styles.uploadButton, (uploading || processing) && styles.disabledButton]}
           onPress={handleUploadAndExtract}
-          disabled={uploading}
+          disabled={uploading || processing}
         >
-          {uploading ? (
-            <ActivityIndicator size="small" color="white" />
+          {(uploading || processing) ? (
+            <View style={styles.buttonLoading}>
+              <ActivityIndicator size="small" color="white" />
+              <Text style={styles.uploadButtonText}>
+                {uploading ? 'Extracting...' : 'Processing...'}
+              </Text>
+            </View>
           ) : (
-            <Text style={styles.uploadButtonText}>📤 Upload & Extract PDF</Text>
+            <Text style={styles.uploadButtonText}>📤 Upload & Process PDF</Text>
           )}
         </TouchableOpacity>
 
         {/* Loading State */}
-        {uploading && (
+        {(uploading || processing) && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>Extracting text using iText...</Text>
+            <Text style={styles.loadingText}>
+              {uploading ? 'Extracting text using iText...' : 'Processing through RAG pipeline...'}
+            </Text>
+            {processing && (
+              <Text style={styles.loadingSubtext}>
+                This may take a few moments while we chunk the text and generate embeddings.
+              </Text>
+            )}
           </View>
         )}
 
@@ -155,12 +332,19 @@ const PdfScreen: React.FC = () => {
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.actionButton}
+                style={[styles.actionButton, styles.chatActionButton]}
                 onPress={() => {
-                  Alert.alert('Feature Coming Soon', 'AI chat feature will be available soon!');
+                  if (processedDocument) {
+                    setShowChat(true);
+                  } else {
+                    Alert.alert('Processing Required', 'Please wait for document processing to complete before chatting.');
+                  }
                 }}
+                disabled={!processedDocument}
               >
-                <Text style={styles.actionButtonText}>🤖 Chat with AI</Text>
+                <Text style={styles.actionButtonText}>
+                  {processedDocument ? '🤖 Chat with AI' : '⏳ Processing...'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -175,13 +359,14 @@ const PdfScreen: React.FC = () => {
 
         {/* Features Info */}
         <View style={styles.featuresInfo}>
-          <Text style={styles.featuresTitle}>✨ Features</Text>
+          <Text style={styles.featuresTitle}>✨ RAG Features</Text>
           <Text style={styles.featuresText}>
             • High-quality PDF text extraction using native iText library{'\n'}
-            • Support for complex PDF layouts and fonts{'\n'}
-            • Metadata extraction (title, author, page count, etc.){'\n'}
-            • Better performance than Python-based solutions{'\n'}
-            • Built specifically for React Native Android
+            • Smart text chunking with overlap for better context{'\n'}
+            • Vector embeddings using VoyageAI for semantic search{'\n'}
+            • Qdrant vector database for fast similarity search{'\n'}
+            • Persistent chat history stored in Appwrite{'\n'}
+            • AI-powered document Q&A with source citations
           </Text>
         </View>
       </ScrollView>
@@ -215,6 +400,53 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  documentsSection: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  documentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  documentInfo: {
+    flex: 1,
+  },
+  documentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  documentDate: {
+    fontSize: 12,
+    color: '#666',
+  },
+  chatButton: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
   uploadButton: {
     backgroundColor: '#007AFF',
     borderRadius: 12,
@@ -234,6 +466,11 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   disabledButton: {
     opacity: 0.6,
@@ -257,6 +494,14 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+  },
+  loadingSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   errorContainer: {
     backgroundColor: '#FFE6E6',
@@ -386,6 +631,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  chatActionButton: {
+    backgroundColor: '#007AFF',
   },
   actionButtonText: {
     color: 'white',

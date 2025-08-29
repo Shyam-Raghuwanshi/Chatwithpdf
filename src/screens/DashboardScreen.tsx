@@ -60,6 +60,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
   // If PDF screen is active, show it
   if (currentScreen === 'pdf') {
+
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.screenHeader}>
@@ -77,7 +78,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             <Text style={styles.logoutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
-        <PdfScreen />
+        <PdfScreen userId={user.id} />
       </SafeAreaView>
     );
   }

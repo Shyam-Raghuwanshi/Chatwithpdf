@@ -1,0 +1,62 @@
+📂 Database: chatbot_app
+1. UserProfile Collection
+
+Attributes:
+
+userId → String (size: 36, required) – store Appwrite User ID
+
+plan → Enum (free, pro, enterprise), required, default = free
+
+tokensUsed → Integer, required, default = 0
+
+tokensLimit → Integer, required, default = 400000
+
+subscriptionValidTill → Datetime, optional
+
+createdAt → Datetime, required
+
+updatedAt → Datetime, required
+
+2. Documents Collection
+
+Attributes:
+
+userId → String (size: 36, required)
+
+title → String (size: 255, required)
+
+fileId → String (size: 36, required) – reference to Appwrite Storage file
+
+textContent → String (size: 5000, optional) – depends on how much text you want to store directly
+
+embeddingId → String (size: 64, optional) – useful if you create embeddings with an external service
+
+createdAt → Datetime, required
+
+3. Chats Collection
+
+Attributes:
+
+userId → String (size: 36, required)
+
+documentId → String (size: 36, optional)
+
+message → String (size: 2000, required)
+
+response → String (size: 4000, required)
+
+tokensUsed → Integer, required
+
+createdAt → Datetime, required
+
+4. Plans Collection (optional, for subscription)
+
+Attributes:
+
+name → String (size: 50, required)
+
+price → Integer, required (₹ in paisa/cents for precision, e.g., ₹1000 = 100000)
+
+tokensLimit → Integer, required
+
+durationDays → Integer, required

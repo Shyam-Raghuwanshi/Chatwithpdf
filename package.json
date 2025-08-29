@@ -10,18 +10,24 @@
     "test": "jest"
   },
   "dependencies": {
+    "@craftzdog/react-native-buffer": "^6.1.0",
     "@react-native/new-app-screen": "0.81.0",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.9.17",
+    "@types/uuid": "^10.0.0",
     "appwrite": "^19.0.0",
+    "axios": "^1.11.0",
     "expo-auth-session": "^6.2.1",
     "expo-linking": "^7.1.7",
     "firebase": "^12.1.0",
     "react": "19.1.0",
     "react-native": "0.81.0",
     "react-native-appwrite": "^0.10.0",
+    "react-native-crypto": "^2.2.1",
     "react-native-customized-box": "^1.1.0",
-    "react-native-linking": "^0.0.0"
+    "react-native-linking": "^0.0.0",
+    "stream-browserify": "^3.0.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -35,6 +41,7 @@
     "@react-native/metro-config": "0.81.0",
     "@react-native/typescript-config": "0.81.0",
     "@types/jest": "^29.5.13",
+    "@types/node": "^24.3.0",
     "@types/react": "^19.1.0",
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
