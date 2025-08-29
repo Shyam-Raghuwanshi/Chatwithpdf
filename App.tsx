@@ -8,6 +8,7 @@ import * as firebaseAuth from "firebase/auth";
 import CustomBox from "react-native-customized-box";
 import { NativeModules } from 'react-native';
 import PdfTextExtractor from './utils/PdfTextExtractor';
+import DocumentPicker from './src/components/DocumentPicker';
 // import { pick } from '@react-native-documents/picker'
 
 const firebaseConfig = {
@@ -326,13 +327,18 @@ function AppContent() {
     setPdfInfo(null);
     setError(null);
     try {
-      // const [result] = await pick({
-      //   mode: 'open',
-      // })
-      // console.log(result)
-      // const res = await PdfTextExtractor.extractPdfText(result.uri);
+      const result = await DocumentPicker.pickSingle({
+        type: [DocumentPicker.types.pdf]
+      });
 
-      // console.log('Extraction result:', res);
+      console.log('Extraction result:', result);
+      console.log('File URI:', result?.uri);
+      console.log("starting pdf text extraction...");
+      const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
+      console.log('Extraction response:', response);
+      setExtractedText(response.text);
+      setPdfInfo(response.metadata);
+
       // if (result.) {
       //   setExtractedText(result.text);
       //   setPdfInfo(result.metadata);

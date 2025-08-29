@@ -1,5 +1,6 @@
 package com.chatwithpdf
 
+import android.net.Uri
 import com.facebook.react.bridge.*
 import com.itextpdf.text.pdf.PdfReader
 import com.itextpdf.text.pdf.parser.PdfReaderContentParser
@@ -25,16 +26,43 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
                 return
             }
 
-            val file = File(pdfPath)
-            if (!file.exists()) {
-                val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                promise.resolve(errorJson)
-                return
+            // Extract text from PDF using appropriate method
+            val extractedText = if (pdfPath.startsWith("content://")) {
+                // Handle content URI
+                try {
+                    val uri = Uri.parse(pdfPath)
+                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot open content URI: $pdfPath")
+                    extractTextFromPdfStream(inputStream)
+                } catch (e: Exception) {
+                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
+                    promise.resolve(errorJson)
+                    return
+                }
+            } else {
+                // Handle file path
+                val file = File(pdfPath)
+                if (!file.exists()) {
+                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
+                    promise.resolve(errorJson)
+                    return
+                }
+                extractTextFromPdf(pdfPath)
             }
 
-            // Extract text from PDF
-            val extractedText = extractTextFromPdf(pdfPath)
-            val metadata = extractMetadata(pdfPath)
+            // Extract metadata with a separate stream/file access
+            val metadata = if (pdfPath.startsWith("content://")) {
+                try {
+                    val uri = Uri.parse(pdfPath)
+                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot open content URI: $pdfPath")
+                    extractMetadataFromStream(inputStream, pdfPath)
+                } catch (e: Exception) {
+                    JSONObject().apply { put("error", "Could not extract metadata: ${e.message}") }
+                }
+            } else {
+                extractMetadata(pdfPath)
+            }
             
             // Create success response
             val result = JSONObject().apply {
@@ -62,16 +90,43 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
                 return
             }
 
-            val file = File(pdfPath)
-            if (!file.exists()) {
-                val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                promise.resolve(errorJson)
-                return
+            // Extract text from specific page
+            val extractedText = if (pdfPath.startsWith("content://")) {
+                // Handle content URI
+                try {
+                    val uri = Uri.parse(pdfPath)
+                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot open content URI: $pdfPath")
+                    extractTextFromSpecificPageStream(inputStream, pageNumber)
+                } catch (e: Exception) {
+                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
+                    promise.resolve(errorJson)
+                    return
+                }
+            } else {
+                // Handle file path
+                val file = File(pdfPath)
+                if (!file.exists()) {
+                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
+                    promise.resolve(errorJson)
+                    return
+                }
+                extractTextFromSpecificPage(pdfPath, pageNumber)
             }
 
-            // Extract text from specific page
-            val extractedText = extractTextFromSpecificPage(pdfPath, pageNumber)
-            val metadata = extractMetadata(pdfPath)
+            // Extract metadata with a separate stream/file access
+            val metadata = if (pdfPath.startsWith("content://")) {
+                try {
+                    val uri = Uri.parse(pdfPath)
+                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot open content URI: $pdfPath")
+                    extractMetadataFromStream(inputStream, pdfPath)
+                } catch (e: Exception) {
+                    JSONObject().apply { put("error", "Could not extract metadata: ${e.message}") }
+                }
+            } else {
+                extractMetadata(pdfPath)
+            }
             
             // Create success response
             val result = JSONObject().apply {
@@ -93,14 +148,29 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
     @ReactMethod
     fun getPdfInfo(pdfPath: String, promise: Promise) {
         try {
-            val file = File(pdfPath)
-            if (!file.exists()) {
-                val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                promise.resolve(errorJson)
-                return
+            // Extract metadata 
+            val metadata = if (pdfPath.startsWith("content://")) {
+                // Handle content URI
+                try {
+                    val uri = Uri.parse(pdfPath)
+                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot open content URI: $pdfPath")
+                    extractMetadataFromStream(inputStream, pdfPath)
+                } catch (e: Exception) {
+                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
+                    promise.resolve(errorJson)
+                    return
+                }
+            } else {
+                // Handle file path
+                val file = File(pdfPath)
+                if (!file.exists()) {
+                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
+                    promise.resolve(errorJson)
+                    return
+                }
+                extractMetadata(pdfPath)
             }
-
-            val metadata = extractMetadata(pdfPath)
             
             val result = JSONObject().apply {
                 put("success", true)
@@ -139,6 +209,30 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
         return stringBuilder.toString().trim()
     }
 
+    private fun extractTextFromPdfStream(inputStream: InputStream): String {
+        val reader = PdfReader(inputStream)
+        val parser = PdfReaderContentParser(reader)
+        val stringBuilder = StringBuilder()
+        
+        try {
+            for (i in 1..reader.numberOfPages) {
+                val strategy: TextExtractionStrategy = parser.processContent(i, SimpleTextExtractionStrategy())
+                val pageText = strategy.resultantText
+                if (pageText.isNotEmpty()) {
+                    stringBuilder.append(pageText)
+                    if (i < reader.numberOfPages) {
+                        stringBuilder.append("\n\n--- Page ${i + 1} ---\n\n")
+                    }
+                }
+            }
+        } finally {
+            reader.close()
+            inputStream.close()
+        }
+        
+        return stringBuilder.toString().trim()
+    }
+
     private fun extractTextFromSpecificPage(pdfPath: String, pageNumber: Int): String {
         val reader = PdfReader(pdfPath)
         
@@ -152,6 +246,23 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
             return strategy.resultantText.trim()
         } finally {
             reader.close()
+        }
+    }
+
+    private fun extractTextFromSpecificPageStream(inputStream: InputStream, pageNumber: Int): String {
+        val reader = PdfReader(inputStream)
+        
+        try {
+            if (pageNumber < 1 || pageNumber > reader.numberOfPages) {
+                throw IllegalArgumentException("Page number $pageNumber is out of range. PDF has ${reader.numberOfPages} pages.")
+            }
+            
+            val parser = PdfReaderContentParser(reader)
+            val strategy: TextExtractionStrategy = parser.processContent(pageNumber, SimpleTextExtractionStrategy())
+            return strategy.resultantText.trim()
+        } finally {
+            reader.close()
+            inputStream.close()
         }
     }
 
@@ -188,6 +299,46 @@ class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactConte
             metadata.put("error", "Could not extract metadata: ${e.message}")
         } finally {
             reader.close()
+        }
+        
+        return metadata
+    }
+
+    private fun extractMetadataFromStream(inputStream: InputStream, originalPath: String): JSONObject {
+        val reader = PdfReader(inputStream)
+        val metadata = JSONObject()
+        
+        try {
+            // Basic PDF information
+            metadata.put("numberOfPages", reader.numberOfPages)
+            metadata.put("pdfVersion", reader.pdfVersion.toString())
+            metadata.put("source", if (originalPath.startsWith("content://")) "Content URI" else "File Path")
+            metadata.put("originalPath", originalPath)
+            
+            // PDF document info
+            val info = reader.info
+            if (info != null) {
+                info["Title"]?.let { metadata.put("title", it) }
+                info["Author"]?.let { metadata.put("author", it) }
+                info["Subject"]?.let { metadata.put("subject", it) }
+                info["Keywords"]?.let { metadata.put("keywords", it) }
+                info["Creator"]?.let { metadata.put("creator", it) }
+                info["Producer"]?.let { metadata.put("producer", it) }
+                info["CreationDate"]?.let { metadata.put("creationDate", it) }
+                info["ModDate"]?.let { metadata.put("modificationDate", it) }
+            }
+            
+            // Security information
+            metadata.put("isEncrypted", reader.isEncrypted())
+            if (reader.isEncrypted()) {
+                metadata.put("securityType", "Password Protected")
+            }
+            
+        } catch (e: Exception) {
+            metadata.put("error", "Could not extract metadata: ${e.message}")
+        } finally {
+            reader.close()
+            inputStream.close()
         }
         
         return metadata
