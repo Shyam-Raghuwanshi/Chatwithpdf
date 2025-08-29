@@ -20,6 +20,7 @@ class MainApplication : Application(), ReactApplication {
               // add(MyReactNativePackage())
               add(PdfTextExtractorPackage())
               add(SimpleDocumentPickerPackage())
+              add(AuthPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

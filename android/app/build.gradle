@@ -113,6 +113,9 @@ dependencies {
 
     // iText PDF library for PDF text extraction
     implementation 'com.itextpdf:itextpdf:5.5.13.3'
+    
+    // Appwrite SDK for authentication
+    implementation 'io.appwrite:sdk-for-android:6.0.0'
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
