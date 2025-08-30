@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import auth from '../../utils/AppwriteAuth';
 import type { User } from '../../types/AuthModule';
+import { defaultConfig } from '../../utils/Config';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: User) => void;
@@ -29,10 +30,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     try {
       // Initialize with your Appwrite credentials
       await auth.initialize(
-        'https://nyc.cloud.appwrite.io/v1', // Your API Endpoint
-        '68a74c460028f0e4cfac' // Your project ID
+        defaultConfig.appwrite.endpoint, // Your API Endpoint
+        defaultConfig.appwrite.projectId // Your project ID
       );
-      
+
       // Check if user is already signed in
       const isSignedIn = await auth.isSignedIn();
       if (isSignedIn) {
@@ -55,21 +56,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true);
-      
+
       // Use the JavaScript Appwrite client directly for OAuth instead of native module
       // This ensures session consistency between auth and database operations
       const { appwriteClient } = require('../../utils/AppwriteClient');
-      
+
       // Initialize the client if not already done
       if (!appwriteClient.getIsInitialized()) {
         appwriteClient.initialize(
-          'https://nyc.cloud.appwrite.io/v1',
-          '68a74c460028f0e4cfac'
+          defaultConfig.appwrite.endpoint,
+          defaultConfig.appwrite.projectId
         );
       }
-      
+
       const account = appwriteClient.getAccount();
-      
+
       try {
         // Try to create OAuth2 session directly with JavaScript client
         // This will open the browser for authentication
@@ -78,19 +79,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           'chatwithpdf://auth/success', // Success URL scheme
           'chatwithpdf://auth/failure'   // Failure URL scheme  
         );
-        
+
         // After OAuth completes, get the user
         const user = await account.get();
         Alert.alert('Success', 'Signed in with Google successfully!');
         onLoginSuccess(user);
-        
+
       } catch (oauthError: any) {
         console.error('Direct OAuth error:', oauthError);
-        
+
         // Fallback to native module if direct OAuth fails
         console.log('Falling back to native OAuth...');
         const result = await auth.signInWithOAuth('google');
-        
+
         if (result.type === 'success') {
           try {
             const user = await auth.getCurrentUser();
@@ -104,7 +105,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           Alert.alert('Error', 'Google sign in was cancelled or failed');
         }
       }
-      
+
     } catch (error: any) {
       console.error('Google sign in error:', error);
       Alert.alert('Error', `Google sign in failed: ${error.message}`);

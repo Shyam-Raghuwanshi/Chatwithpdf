@@ -164,6 +164,14 @@ export class RAGService {
         this.config.chunking
       );
 
+      console.log(chunks)
+
+      // return new Promise((resolve) => resolve({
+      //   documentId: '',
+      //   chunksProcessed: 0,
+      //   totalTokensUsed: 0,
+      //   success: true,
+      // }))
       if (chunks.length === 0) {
         throw new Error('No chunks generated from document text');
       }
@@ -177,7 +185,7 @@ export class RAGService {
         'document'
       );
 
-      console.log(`Generated embeddings for ${embeddings.length} chunks`);
+      console.log(`Generated embeddings for ${embeddings} chunks`);
 
       // Step 3: Store embeddings in vector database
       const chunksWithEmbeddings = chunks.map((chunk, index) => ({

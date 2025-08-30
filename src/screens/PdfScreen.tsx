@@ -14,6 +14,7 @@ import DocumentPicker from '../components/DocumentPicker';
 import RAGService, { ProcessDocumentResult } from '../../utils/RAGService';
 import ChatScreen from './ChatScreen';
 import { Document } from '../../utils/AppwriteDB';
+import { defaultConfig } from '../../utils/Config';
 
 interface Props {
   userId: string; // Pass this from your auth system
@@ -39,29 +40,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
 
   const initializeRAGService = async () => {
     try {
-      // Configure your endpoints here
-      const config = {
-        appwrite: {
-          endpoint: 'https://nyc.cloud.appwrite.io/v1', // Update with your Appwrite endpoint
-          projectId: '68a74c460028f0e4cfac', // Update with your Appwrite project ID
-          databaseId: '68a7552c0009a09693b0', // Update with your database ID
-        },
-        qdrant: {
-          url: 'https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io', // Update with your Qdrant cluster URL
-          apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE',
-        },
-        voyageAI: {
-          apiKey: 'pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1',
-        },
-        chunking: {
-          chunkSize: 600,
-          overlap: 200,
-          preserveParagraphs: true,
-          minChunkSize: 100,
-        },
-      };
-
-      const rag = new RAGService(config);
+      const rag = new RAGService(defaultConfig);
       await rag.initialize();
 
       // Reinitialize the database connection to pick up OAuth session

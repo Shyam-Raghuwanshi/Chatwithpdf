@@ -45,7 +45,7 @@ export class TextChunker {
 
     // Clean and normalize text
     const cleanText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
+
     // If preserveParagraphs is true, first split by paragraphs
     let segments: string[] = [];
     if (opts.preserveParagraphs) {
@@ -117,10 +117,10 @@ export class TextChunker {
   private static getOverlapText(text: string, overlapTokens: number): string {
     const overlapChars = overlapTokens * 4; // Rough estimation
     const startIndex = Math.max(0, text.length - overlapChars);
-    
+
     // Try to start at a sentence or word boundary
     let overlap = text.substring(startIndex);
-    
+
     // Find the first sentence or word boundary
     const sentenceBoundary = overlap.search(/[.!?]\s+/);
     if (sentenceBoundary > 0 && sentenceBoundary < overlap.length / 2) {
@@ -142,7 +142,7 @@ export class TextChunker {
     // Remove overlap and find the main content
     const lines = chunkText.split('\n');
     let searchText = lines[0];
-    
+
     // Try to find a unique part of the chunk
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].length > 20) {
@@ -192,11 +192,11 @@ export class TextChunker {
     options: Partial<ChunkingOptions> = {}
   ): TextChunk[] {
     const chunks = this.chunkText(text, options);
-    
+
     // Add document metadata to each chunk
     return chunks.map(chunk => ({
       ...chunk,
-      id: `${documentId}_${chunk.chunkIndex}`,
+      id: documentId,
       metadata: {
         ...chunk.metadata,
         documentId,

@@ -14,6 +14,7 @@ export interface AppConfig {
       qdrant: {
             url: string;
             apiKey?: string;
+            timeout: number;
       };
       voyageAI: {
             apiKey?: string;
@@ -35,15 +36,14 @@ export const defaultConfig: AppConfig = {
             projectId: '68a74c460028f0e4cfac', // Update with your Appwrite project ID
             databaseId: '68a7552c0009a09693b0',
       },
-      qdrant: {
-            // Replace with your Qdrant cluster URL
-            url: 'https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io:6333',
-            // API key is provided in the main RAG service
-            apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.hQN7aD0bsLnlY3VnkGKu4wBjA58TOEuTYrrdSbIocTE",
+       qdrant: {
+            url: "https://086d53ce-537f-4749-ac07-113ec87218d4.us-east4-0.gcp.cloud.qdrant.io:6333",
+            apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.qWSVCKblkqUnKF1tIGlYjaAJsQjHxsRLT-frvmRm1H8',
+            timeout: 30000,
       },
       voyageAI: {
             // API key is provided in the main RAG service
-            apiKey: "pa-xOPYGN_PFfIcfrHVI30NkWO3xhEgPcLE32vJGd_tGBp",
+            apiKey: "pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1",
             model: 'voyage-large-2',
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
       },

@@ -1,5 +1,7 @@
 // Using fetch instead of QdrantClient for React Native compatibility
 
+import { defaultConfig } from "./Config";
+
 export interface QdrantPoint {
   id: string;
   vector: number[];
@@ -21,20 +23,17 @@ export interface QdrantConfig {
 export interface CollectionConfig {
   name: string;
   vectorSize: number;
-  distance: 'Cosine' | 'Euclid' | 'Dot';
+  distance: 'Cosine';
 }
 
 export class QdrantVectorDB {
   private config: QdrantConfig;
 
-  constructor(config: Partial<QdrantConfig> = {}) {
-    const QDRANT_API_KEY =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.j2tZ6wMkbgQfnahnj3TT_ojnAqHhv-hoJHH7-7TqbJg";
-
+  constructor() {
     this.config = {
-      url: "https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io:6333", // You'll need to update this
-      apiKey: QDRANT_API_KEY,
-      timeout: config.timeout || 30000,
+      url: defaultConfig.qdrant.url,
+      apiKey: defaultConfig.qdrant.apiKey!,
+      timeout: defaultConfig.qdrant.timeout || 30000,
     };
   }
 

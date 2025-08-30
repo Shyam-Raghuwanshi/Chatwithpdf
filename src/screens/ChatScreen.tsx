@@ -13,7 +13,8 @@ import {
   Platform,
 } from 'react-native';
 import RAGService, { ChatResponse } from '../../utils/RAGService';
-import { Chat, Document } from '../../utils/AppwriteDB';
+import { Document } from '../../utils/AppwriteDB';
+import { defaultConfig } from '../../utils/Config';
 
 interface ChatMessage {
   id: string;
@@ -58,32 +59,8 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
   const initializeRAGService = async () => {
     try {
       setIsLoading(true);
-      
-      // You'll need to configure these endpoints properly
-      const config = {
-        appwrite: {
-          endpoint: 'https://nyc.cloud.appwrite.io/v1', // Update with your Appwrite endpoint
-          projectId: '68a74c460028f0e4cfac', // Update with your Appwrite project ID
-          databaseId: '68a7552c0009a09693b0', // Update with your database ID
-        },
-        qdrant: {
-          url: 'https://28139307-097c-468c-ba2b-7f426a63de1e.us-west-2-0.aws.cloud.qdrant.io:6333', // Update with your Qdrant cluster URL
-          apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.j2tZ6wMkbgQfnahnj3TT_ojnAqHhv-hoJHH7-7TqbJg',
-        },
-        voyageAI: {
-          apiKey: 'pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1',
-        },
-        chunking: {
-          chunkSize: 600,
-          overlap: 200,
-          preserveParagraphs: true,
-          minChunkSize: 100,
-        },
-      };
-
-      const rag = new RAGService(config);
+      const rag = new RAGService(defaultConfig);
       await rag.initialize();
-      
       setRagService(rag);
       setIsInitialized(true);
     } catch (error) {
@@ -121,7 +98,7 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
 
     const userMessage = inputText.trim();
     const messageId = Date.now().toString();
-    
+
     // Add user message to UI immediately
     const newMessage: ChatMessage = {
       id: messageId,
@@ -153,26 +130,26 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
         prev.map(msg =>
           msg.id === messageId
             ? {
-                ...msg,
-                response: chatResponse.response,
-                sources: chatResponse.sources,
-                isLoading: false,
-              }
+              ...msg,
+              response: chatResponse.response,
+              sources: chatResponse.sources,
+              isLoading: false,
+            }
             : msg
         )
       );
     } catch (error: any) {
       console.error('Error sending message:', error);
-      
+
       // Update message with error
       setMessages(prev =>
         prev.map(msg =>
           msg.id === messageId
             ? {
-                ...msg,
-                response: `Error: ${error.message || 'Failed to get response'}`,
-                isLoading: false,
-              }
+              ...msg,
+              response: `Error: ${error.message || 'Failed to get response'}`,
+              isLoading: false,
+            }
             : msg
         )
       );
@@ -201,7 +178,7 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
         ) : (
           <>
             <Text style={styles.aiMessage}>{item.response}</Text>
-            
+
             {/* Sources */}
             {item.sources && item.sources.length > 0 && (
               <View style={styles.sourcesContainer}>
@@ -237,8 +214,8 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        style={styles.container} 
+      <KeyboardAvoidingView
+        style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {/* Header */}
