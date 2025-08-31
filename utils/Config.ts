@@ -22,6 +22,7 @@ export interface AppConfig {
             apiUrl?: string;
             timeout?: number;
             usageTier?: 1 | 2 | 3; // VoyageAI usage tier for dynamic rate limiting
+            hasPaymentMethod?: boolean; // Whether payment method is added to account
       };
       perplexity: {
             apiKey?: string;
@@ -56,6 +57,7 @@ export const defaultConfig: AppConfig = {
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
             timeout: 45000, // 45 seconds timeout for embedding requests
             usageTier: 1, // Start with Tier 1 - upgrade as needed
+            hasPaymentMethod: true, // IMPORTANT: Set to true after adding payment method to unlock 2000 RPM
       },
       perplexity: {
             // Add your Perplexity API key here for better chat responses

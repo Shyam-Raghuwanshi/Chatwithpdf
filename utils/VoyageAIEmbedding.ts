@@ -8,7 +8,7 @@ class RateLimiter {
   private maxRequests: number;
   private timeWindow: number;
 
-  constructor(maxRequests: number = 100, timeWindow: number = 60000) { // 100 requests per minute (conservative but usable)
+  constructor(maxRequests: number, timeWindow: number = 60000) {
     this.maxRequests = maxRequests;
     this.timeWindow = timeWindow;
   }
@@ -18,6 +18,8 @@ class RateLimiter {
     
     // Remove old requests outside the time window
     this.requests = this.requests.filter(time => now - time < this.timeWindow);
+    
+    console.log(`🔍 Rate limiter check: ${this.requests.length}/${this.maxRequests} requests in last ${this.timeWindow/1000}s`);
     
     if (this.requests.length >= this.maxRequests) {
       const oldestRequest = this.requests[0];
@@ -33,7 +35,7 @@ class RateLimiter {
     
     // Log current utilization
     const utilization = (this.requests.length / this.maxRequests * 100).toFixed(1);
-    console.log(`📊 Rate limit utilization: ${this.requests.length}/${this.maxRequests} (${utilization}%)`);
+    console.log(`📊 Rate limit utilization: ${this.requests.length}/${this.maxRequests} (${utilization}%) - MAX LIMIT: ${this.maxRequests}`);
   }
 
   private delay(ms: number): Promise<void> {
@@ -66,11 +68,14 @@ export interface VoyageAIConfig {
   model: string;
   timeout: number;
   usageTier?: 1 | 2 | 3; // VoyageAI usage tier for dynamic rate limiting
+  hasPaymentMethod?: boolean; // Whether payment method is added to account
 }
 
 export class VoyageAIEmbedding {
+  private static instance: VoyageAIEmbedding | null = null;
   private config: VoyageAIConfig;
   private rateLimiter: RateLimiter;
+  private disableRateLimiting: boolean = false; // Set to true for debugging
 
   constructor(config: Partial<VoyageAIConfig> = {}) {
     this.config = {
@@ -79,15 +84,51 @@ export class VoyageAIEmbedding {
       model: config.model || "voyage-large-2",
       timeout: config.timeout || 30000,
       usageTier: config.usageTier || 1, // Default to Tier 1
+      hasPaymentMethod: config.hasPaymentMethod || false, // Default to false (most restrictive)
     };
     
-    // Dynamic rate limiting based on VoyageAI usage tier
-    const tierMultiplier = this.config.usageTier || 1;
-    const baseLimit = 1800; // Base limit per minute (90% of Tier 1's 2000 RPM for safety)
-    const rateLimit = Math.floor(baseLimit * tierMultiplier);
+    // CRITICAL: Accounts without payment methods have severely limited rates
+    // Without payment: 3 RPM, 10K TPM
+    // With payment: 2000 RPM (Tier 1), 4000 RPM (Tier 2), 6000 RPM (Tier 3)
     
-    console.log(`🚀 VoyageAI initialized with Tier ${this.config.usageTier} limits: ${rateLimit} requests/minute`);
+    const hasPaymentMethod = this.config.hasPaymentMethod;
+    
+    let rateLimit: number;
+    if (hasPaymentMethod) {
+      const tierMultiplier = this.config.usageTier || 1;
+      const baseLimit = 1950; // 97.5% of Tier 1's 2000 RPM
+      rateLimit = Math.floor(baseLimit * tierMultiplier);
+    } else {
+      // For accounts without payment method: 3 RPM = 1 request every 20 seconds
+      // Let's be conservative and allow 2 requests per minute
+      rateLimit = 2;
+    }
+    
+    console.log(`🚀 VoyageAI NEW INSTANCE created`);
+    console.log(`💳 Payment method: ${hasPaymentMethod ? 'ADDED' : 'NOT ADDED - SEVERELY LIMITED!'}`);
+    console.log(`⚡ Rate limit: ${rateLimit} requests/minute`);
+    console.log(`🔧 Instance ID: ${Date.now()}`);
+    console.log(`⚡ Rate limiting ${this.disableRateLimiting ? 'DISABLED' : 'ENABLED'} for debugging`);
+    
+    if (!hasPaymentMethod) {
+      console.log(`🚨 WARNING: Add payment method at https://dashboard.voyageai.com/ to unlock 2000 RPM!`);
+    }
+    
+    // Pass the calculated rate limit
     this.rateLimiter = new RateLimiter(rateLimit, 60000);
+  }
+
+  /**
+   * Get or create singleton instance
+   */
+  static getInstance(config?: Partial<VoyageAIConfig>): VoyageAIEmbedding {
+    if (!VoyageAIEmbedding.instance) {
+      VoyageAIEmbedding.instance = new VoyageAIEmbedding(config);
+      console.log('🎯 Created singleton VoyageAI instance');
+    } else {
+      console.log('♻️ Reusing existing VoyageAI instance');
+    }
+    return VoyageAIEmbedding.instance;
   }
 
   /**
@@ -127,8 +168,12 @@ export class VoyageAIEmbedding {
     }
 
     try {
-      // Apply rate limiting
-      await this.rateLimiter.waitIfNeeded();
+      // Apply rate limiting only if not disabled
+      if (!this.disableRateLimiting) {
+        await this.rateLimiter.waitIfNeeded();
+      } else {
+        console.log('⚡ Skipping rate limiting for debugging');
+      }
 
       const requestData: EmbeddingRequest = {
         input: cleanTexts,
@@ -166,6 +211,13 @@ export class VoyageAIEmbedding {
 
         // Provide specific error messages for common issues
         if (status === 429) {
+          const errorDetail = error.response.data?.detail || '';
+          
+          // Check if this is due to missing payment method
+          if (errorDetail.includes('payment method') || errorDetail.includes('reduced rate limits')) {
+            throw new Error(`VoyageAI API Error: Account without payment method - limited to 3 RPM. Add payment method at https://dashboard.voyageai.com/ to unlock 2000 RPM. Details: ${errorDetail}`);
+          }
+          
           throw new Error(`VoyageAI API Error: HTTP 429: Rate limit exceeded. Please wait before making more requests.`);
         } else if (status === 401) {
           throw new Error(`VoyageAI API Error: HTTP 401: Invalid API key or authentication failed.`);

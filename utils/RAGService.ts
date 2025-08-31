@@ -66,7 +66,7 @@ export class RAGService {
   constructor(config: RAGConfig) {
     this.config = config;
     this.textChunker = TextChunker;
-    this.embeddingService = new VoyageAIEmbedding(config.voyageAI);
+    this.embeddingService = VoyageAIEmbedding.getInstance(config.voyageAI);
     this.vectorDB = new QdrantVectorDB();
     this.appwriteDB = new AppwriteDB(config.appwrite);
     this.perplexityAI = new PerplexityAI(config.perplexity);
