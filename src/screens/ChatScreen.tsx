@@ -67,6 +67,9 @@ const ChatScreen: React.FC<Props> = ({
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [showSourceDropdown, setShowSourceDropdown] = useState(false);
+  const [selectedSourceForAction, setSelectedSourceForAction] = useState<Document | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const screenHeight = Dimensions.get('window').height;
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
@@ -202,7 +205,79 @@ const ChatScreen: React.FC<Props> = ({
   // Handle removing a source from this chat
   const handleRemoveSourceFromChat = (source: Document) => {
     setChatSources(prev => prev.filter(s => s.$id !== source.$id));
-    setAvailableSources(prev => [...prev, source]);
+    
+    // Only add back to available sources if it's a global document (not chat-specific)
+    if (!source.chatId) {
+      setAvailableSources(prev => [...prev, source]);
+    }
+  };
+
+  // Handle source action menu
+  const handleSourceAction = (source: Document) => {
+    setSelectedSourceForAction(source);
+    setShowSourceDropdown(true);
+  };
+
+  // Handle delete source from dropdown
+  const handleDeleteSourceFromDropdown = async () => {
+    if (!selectedSourceForAction) return;
+
+    setShowSourceDropdown(false);
+    
+    // Check if this is a chat-specific document (uploaded in this chat)
+    if (selectedSourceForAction.chatId === currentChatId) {
+      // This is a chat-specific document, delete it permanently
+      Alert.alert(
+        'Delete Document',
+        `This will permanently delete "${selectedSourceForAction.title}" from your account. This action cannot be undone.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setSelectedSourceForAction(null)
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => deleteChatSpecificDocument(selectedSourceForAction)
+          }
+        ]
+      );
+    } else {
+      // This is a global document, just remove from chat
+      handleRemoveSourceFromChat(selectedSourceForAction);
+      setSelectedSourceForAction(null);
+    }
+  };
+
+  // Delete chat-specific document permanently
+  const deleteChatSpecificDocument = async (document: Document) => {
+    if (!ragService || !document.$id) {
+      Alert.alert('Error', 'Unable to delete document at this time.');
+      setSelectedSourceForAction(null);
+      return;
+    }
+
+    setDeletingDocument(true);
+    try {
+      console.log('Deleting chat-specific document:', document.$id);
+      
+      // Delete from database and vector store
+      await ragService.deleteDocument(userId, document.$id);
+      
+      // Remove from local state
+      setChatSources(prev => prev.filter(s => s.$id !== document.$id));
+      
+      console.log('Document deleted successfully');
+      Alert.alert('Success', 'Document deleted successfully.');
+      
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      Alert.alert('Error', 'Failed to delete document. Please try again.');
+    } finally {
+      setDeletingDocument(false);
+      setSelectedSourceForAction(null);
+    }
   };
 
   // Process document through RAG pipeline
@@ -464,16 +539,23 @@ const ChatScreen: React.FC<Props> = ({
             <Text style={styles.sourceEmoji}>📄</Text>
           </View>
           <View style={styles.sourceInfo}>
-            <Text style={styles.sourceTitle} numberOfLines={2}>
-              {source.title}
-            </Text>
+            <View style={styles.sourceTitleContainer}>
+              <Text style={styles.sourceTitle} numberOfLines={2}>
+                {source.title}
+              </Text>
+              {source.chatId === currentChatId && (
+                <View style={styles.chatSpecificBadge}>
+                  <Text style={styles.chatSpecificText}>Chat-only</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.sourceMeta}>
               {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
             </Text>
           </View>
           <TouchableOpacity
             style={styles.sourceActions}
-            onPress={() => handleRemoveSourceFromChat(source)}
+            onPress={() => handleSourceAction(source)}
           >
             <Text style={styles.sourceActionIcon}>⋯</Text>
           </TouchableOpacity>
@@ -719,6 +801,57 @@ const ChatScreen: React.FC<Props> = ({
             </View>
           </View>
         </Modal>
+
+        {/* Source Action Dropdown Modal */}
+        <Modal
+          visible={showSourceDropdown}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowSourceDropdown(false)}
+        >
+          <TouchableOpacity 
+            style={styles.dropdownOverlay} 
+            activeOpacity={1} 
+            onPress={() => setShowSourceDropdown(false)}
+          >
+            <View style={styles.dropdownContent}>
+              <TouchableOpacity 
+                style={[styles.dropdownOption, deletingDocument && styles.disabledDropdownOption]}
+                onPress={handleDeleteSourceFromDropdown}
+                activeOpacity={0.7}
+                disabled={deletingDocument}
+              >
+                {deletingDocument ? (
+                  <ActivityIndicator size="small" color="#007AFF" />
+                ) : (
+                  <Text style={styles.dropdownOptionIcon}>
+                    {selectedSourceForAction?.chatId === currentChatId ? '🗑️' : '➖'}
+                  </Text>
+                )}
+                <Text style={styles.dropdownOptionText}>
+                  {deletingDocument 
+                    ? 'Deleting...'
+                    : selectedSourceForAction?.chatId === currentChatId 
+                      ? 'Delete document' 
+                      : 'Remove from chat'
+                  }
+                </Text>
+              </TouchableOpacity>
+              
+              <View style={styles.dropdownSeparator} />
+              
+              <TouchableOpacity 
+                style={[styles.dropdownOption, deletingDocument && styles.disabledDropdownOption]}
+                onPress={() => setShowSourceDropdown(false)}
+                activeOpacity={0.7}
+                disabled={deletingDocument}
+              >
+                <Text style={styles.dropdownOptionIcon}>❌</Text>
+                <Text style={styles.dropdownOptionText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -822,11 +955,28 @@ const styles = StyleSheet.create({
   sourceInfo: {
     flex: 1,
   },
+  sourceTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   sourceTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
-    marginBottom: 4,
+    flex: 1,
+  },
+  chatSpecificBadge: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  chatSpecificText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: '600',
   },
   sourceMeta: {
     fontSize: 14,
@@ -1202,6 +1352,58 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: '#007AFF',
+  },
+
+  // Dropdown Styles
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownContent: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    minWidth: 200,
+    paddingVertical: 8,
+    marginHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  dropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  disabledDropdownOption: {
+    opacity: 0.6,
+  },
+  dropdownOptionIcon: {
+    fontSize: 16,
+    marginRight: 12,
+  },
+  dropdownOptionText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '500',
+    flex: 1,
+  },
+  dropdownSeparator: {
+    height: 1,
+    backgroundColor: '#3a3a3c',
+    marginHorizontal: 12,
+    marginVertical: 4,
   },
 });
 
