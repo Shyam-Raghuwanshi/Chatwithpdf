@@ -317,21 +317,6 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   if (currentScreen === 'pdf') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentScreen('dashboard')}
-          >
-            <Text style={styles.backButtonText}>← Back to Dashboard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-            disabled={loading}
-          >
-            <Text style={styles.logoutText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
         <PdfScreen 
           userId={user.id} 
           selectedDocument={selectedDocument} 

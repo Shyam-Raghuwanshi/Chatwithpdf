@@ -76,6 +76,7 @@ export class VoyageAIEmbedding {
   private config: VoyageAIConfig;
   private rateLimiter: RateLimiter;
   private disableRateLimiting: boolean = false; // Set to true for debugging
+  private disableRetries: boolean = false; // Set to true to disable retries for debugging
 
   constructor(config: Partial<VoyageAIConfig> = {}) {
     this.config = {
@@ -197,17 +198,24 @@ export class VoyageAIEmbedding {
         throw new Error('Invalid response format from VoyageAI API');
       }
 
+      console.log(`✅ VoyageAI request successful - ${cleanTexts.length} texts processed`);
+
       // Sort embeddings by index to maintain order
       const sortedData = response.data.data.sort((a, b) => a.index - b.index);
 
       return sortedData.map(item => item.embedding);
     } catch (error: any) {
+      console.log(`❌ VoyageAI request failed after ${Date.now() - Date.now()}ms`);
+      
       if (error.response) {
         const status = error.response.status;
         const errorMessage = error.response.data?.error?.message ||
           error.response.data?.message ||
           error.response.statusText ||
           'Unknown API error';
+
+        console.log(`🚨 VoyageAI HTTP Error: ${status} - ${errorMessage}`);
+        console.log(`📊 Request details: ${cleanTexts.length} texts processed`);
 
         // Provide specific error messages for common issues
         if (status === 429) {
@@ -225,12 +233,17 @@ export class VoyageAIEmbedding {
           throw new Error(`VoyageAI API Error: HTTP 403: Access forbidden. Check your API key permissions.`);
         } else if (status === 400) {
           throw new Error(`VoyageAI API Error: HTTP 400: Bad request. ${errorMessage}`);
+        } else if (status >= 500) {
+          throw new Error(`VoyageAI API Error: HTTP ${status}: Server error. ${errorMessage}`);
         } else {
           throw new Error(`VoyageAI API Error: HTTP ${status}: ${errorMessage}`);
         }
       } else if (error.request) {
-        throw new Error('Network error: Unable to reach VoyageAI API. Check your internet connection.');
+        console.log(`🌐 VoyageAI Network Error: ${error.message}`);
+        console.log(`⏰ Timeout settings: ${this.config.timeout}ms`);
+        throw new Error(`Network error: Unable to reach VoyageAI API. Check your internet connection. Details: ${error.message}`);
       } else {
+        console.log(`🐛 VoyageAI Unknown Error: ${error.message}`);
         throw new Error(`Embedding generation error: ${error.message}`);
       }
     }
@@ -242,39 +255,59 @@ export class VoyageAIEmbedding {
   async generateEmbeddingsWithRetry(
     texts: string[],
     inputType: 'query' | 'document' = 'document',
-    maxRetries: number = 5,
+    maxRetries: number = 2, // Reduced to 2 retries max
     initialRetryDelay: number = 1000
   ): Promise<number[][]> {
+    if (this.disableRetries) {
+      console.log('⚡ Retries disabled for debugging - single attempt only');
+      return await this.generateEmbeddings(texts, inputType);
+    }
+
     let lastError: Error | null = null;
     let retryDelay = initialRetryDelay;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
+        console.log(`🎯 VoyageAI attempt ${attempt + 1}/${maxRetries} for ${texts.length} texts`);
         return await this.generateEmbeddings(texts, inputType);
       } catch (error: any) {
         lastError = error;
+        const isLastAttempt = attempt === maxRetries - 1;
 
-        // Don't retry on authentication or bad request errors
-        if (error.message.includes('401') || error.message.includes('400') || error.message.includes('403')) {
+        console.log(`❌ VoyageAI attempt ${attempt + 1} failed: ${error.message}`);
+
+        // Don't retry on authentication, bad request, or server errors
+        if (error.message.includes('401') || 
+            error.message.includes('400') || 
+            error.message.includes('403') ||
+            error.message.includes('HTTP 5')) {
+          console.log('❌ Non-retryable error - stopping attempts');
           throw error;
         }
 
-        // Special handling for rate limits (429)
+        // Only retry on rate limits or network issues
         if (error.message.includes('429')) {
-          // For rate limits, wait longer
-          retryDelay = Math.max(retryDelay, 5000); // At least 5 seconds for rate limits
-          console.warn(`Rate limit hit (attempt ${attempt + 1}/${maxRetries}), waiting ${retryDelay}ms before retry...`);
+          if (error.message.includes('payment method')) {
+            console.log('❌ Payment method issue - not retrying');
+            throw error;
+          }
+          console.log(`⏳ Rate limit hit, waiting ${retryDelay}ms before retry...`);
+        } else if (error.message.includes('Network error') || error.message.includes('timeout')) {
+          console.log(`🌐 Network/timeout error, waiting ${retryDelay}ms before retry...`);
         } else {
-          console.warn(`Embedding attempt ${attempt + 1} failed, retrying in ${retryDelay}ms...`);
+          // For unknown errors, don't retry to avoid infinite loops
+          console.log('❌ Unknown error type - not retrying');
+          throw error;
         }
 
-        if (attempt < maxRetries - 1) {
+        if (!isLastAttempt) {
           await this.delay(retryDelay);
-          retryDelay *= 2; // Exponential backoff
+          retryDelay *= 2; // Double the delay for next attempt
         }
       }
     }
 
+    console.log(`❌ All ${maxRetries} attempts failed for VoyageAI embedding generation`);
     throw lastError || new Error('Max retries exceeded');
   }
 
@@ -473,8 +506,22 @@ export class VoyageAIEmbedding {
   }
 
   /**
-   * Update usage tier and reconfigure rate limiter
+   * Enable debugging mode (disable retries and rate limiting)
    */
+  enableDebugMode(disableRetries: boolean = true, disableRateLimiting: boolean = false): void {
+    this.disableRetries = disableRetries;
+    this.disableRateLimiting = disableRateLimiting;
+    console.log(`🔧 Debug mode enabled: retries=${!disableRetries}, rateLimiting=${!disableRateLimiting}`);
+  }
+
+  /**
+   * Disable debugging mode (enable retries and rate limiting)
+   */
+  disableDebugMode(): void {
+    this.disableRetries = false;
+    this.disableRateLimiting = false;
+    console.log(`🔧 Debug mode disabled: normal operation restored`);
+  }
   updateUsageTier(tier: 1 | 2 | 3): void {
     this.config.usageTier = tier;
     

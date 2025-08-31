@@ -55,7 +55,7 @@ export const defaultConfig: AppConfig = {
             apiKey: "pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1",
             model: 'voyage-large-2',
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
-            timeout: 45000, // 45 seconds timeout for embedding requests
+            timeout: 10000, // 10 seconds - much more reasonable based on actual API response times
             usageTier: 1, // Start with Tier 1 - upgrade as needed
             hasPaymentMethod: true, // IMPORTANT: Set to true after adding payment method to unlock 2000 RPM
       },
