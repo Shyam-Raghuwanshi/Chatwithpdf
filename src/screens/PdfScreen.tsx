@@ -18,32 +18,57 @@ import { defaultConfig } from '../../utils/Config';
 
 interface Props {
   userId: string; // Pass this from your auth system
+  selectedDocument?: Document | null; // Pre-selected document to load
+  ragService?: RAGService | null; // Pre-initialized RAG service
+  userDocuments?: Document[]; // Pre-loaded user documents
 }
 
-const PdfScreen: React.FC<Props> = ({ userId }) => {
+const PdfScreen: React.FC<Props> = ({ userId, selectedDocument, ragService: externalRagService, userDocuments: externalUserDocuments }) => {
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [extractedText, setExtractedText] = useState<string | null>(null);
   const [pdfInfo, setPdfInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [ragService, setRagService] = useState<RAGService | null>(null);
+  const [ragService, setRagService] = useState<RAGService | null>(externalRagService || null);
   const [processedDocument, setProcessedDocument] = useState<Document | null>(null);
   const [showChat, setShowChat] = useState(false);
-  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
+  const [userDocuments, setUserDocuments] = useState<Document[]>(externalUserDocuments || []);
 
-  // Load user documents
+  // Initialize RAG service or use external one
   useEffect(() => {
-    if (!ragService) {
-      // Initialize RAG service when component mounts
+    if (externalRagService) {
+      // Use external RAG service (faster)
+      setRagService(externalRagService);
+    } else if (!ragService) {
+      // Initialize RAG service when component mounts (fallback)
       initializeRAGService().then(service => {
         if (service) {
           setRagService(service);
         }
       });
-    } else {
+    }
+  }, [externalRagService]);
+
+  // Load user documents when RAG service is ready (only if no documents provided)
+  useEffect(() => {
+    if (ragService && !selectedDocument && (!externalUserDocuments || externalUserDocuments.length === 0)) {
       loadUserDocuments();
     }
-  }, [ragService]);
+  }, [ragService, selectedDocument, externalUserDocuments]);
+
+  // Handle selected document from dashboard
+  useEffect(() => {
+    if (selectedDocument && ragService) {
+      console.log('Loading pre-selected document:', selectedDocument.title);
+      setProcessedDocument(selectedDocument);
+      setShowChat(true); // Directly show chat for pre-selected documents
+      
+      // Skip loading user documents if we have them already
+      if (externalUserDocuments && externalUserDocuments.length > 0) {
+        setUserDocuments(externalUserDocuments);
+      }
+    }
+  }, [selectedDocument, ragService, externalUserDocuments]);
 
   const initializeRAGService = async () => {
     try {

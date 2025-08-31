@@ -36,8 +36,15 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const [userDocuments, setUserDocuments] = useState<Document[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(true);
   const [ragService, setRagService] = useState<RAGService | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const screenHeight = Dimensions.get('window').height;
+  
+  // Cache RAG service to avoid reinitializing
+  const ragServiceRef = useRef<RAGService | null>(null);
 
   // Load user documents on component mount
   React.useEffect(() => {
@@ -89,8 +96,47 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   };
 
   const handleDocumentPress = async (document: Document) => {
-    // Navigate to chat with this document
+    // Set the selected document and navigate to chat
+    setSelectedDocument(document);
     setCurrentScreen('pdf');
+  };
+
+  const handleDocumentAction = (document: Document) => {
+    setDocumentToDelete(document);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteDocument = async () => {
+    if (!documentToDelete || !ragService || !user || !user.id || !documentToDelete.$id) {
+      Alert.alert('Error', 'Unable to delete document at this time.');
+      return;
+    }
+
+    setDeletingDocument(true);
+    try {
+      const userId = user.id;
+      const documentId = documentToDelete.$id;
+      
+      // Optimistically remove from UI first (for better UX)
+      setUserDocuments(prev => prev.filter(doc => doc.$id !== documentId));
+      
+      // Close modal immediately
+      setShowDeleteModal(false);
+      setDocumentToDelete(null);
+      
+      // Delete from database in background
+      await ragService.deleteDocument(userId, documentId);
+      
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      
+      // Revert optimistic update on error
+      await loadUserDocuments();
+      
+      Alert.alert('Error', 'Failed to delete document. Please try again.');
+    } finally {
+      setDeletingDocument(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -141,9 +187,17 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   };
 
   const initializeRAGService = async () => {
+    // Return cached service if available
+    if (ragServiceRef.current) {
+      return ragServiceRef.current;
+    }
+    
     try {
       const rag = new RAGService(defaultConfig);
       await rag.initialize();
+      
+      // Cache the service
+      ragServiceRef.current = rag;
       return rag;
     } catch (error) {
       console.error('Error initializing RAG service:', error);
@@ -278,7 +332,12 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             <Text style={styles.logoutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
-        <PdfScreen userId={user.id} />
+        <PdfScreen 
+          userId={user.id} 
+          selectedDocument={selectedDocument} 
+          ragService={ragService}
+          userDocuments={userDocuments}
+        />
       </SafeAreaView>
     );
   }
@@ -346,7 +405,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
                         1 source • {formatTimeAgo(doc.createdAt)}
                       </Text>
                     </View>
-                    <TouchableOpacity style={styles.documentAction}>
+                    <TouchableOpacity style={styles.documentAction} onPress={() => handleDocumentAction(doc)}>
                       <Text style={styles.documentActionIcon}>⋯</Text>
                     </TouchableOpacity>
                   </TouchableOpacity>
@@ -451,6 +510,45 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <Text style={styles.deleteModalTitle}>Delete Document</Text>
+            <Text style={styles.deleteModalMessage}>
+              Are you sure you want to delete "{documentToDelete?.title}"? This action cannot be undone.
+            </Text>
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowDeleteModal(false);
+                  setDocumentToDelete(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteButton]}
+                onPress={handleDeleteDocument}
+                disabled={deletingDocument}
+              >
+                {deletingDocument ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.deleteButtonText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -841,6 +939,65 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '500',
+  },
+  // Delete Modal Styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 16,
+    color: '#999',
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  deleteModalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#3a3a3c',
+  },
+  cancelButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteButton: {
+    backgroundColor: '#ff3b30',
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
