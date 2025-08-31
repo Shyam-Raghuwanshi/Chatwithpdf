@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,19 @@ import {
   Alert,
   Image,
   ScrollView,
+  Modal,
+  Animated,
+  Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import auth from '../../utils/AppwriteAuth';
 import PdfScreen from './PdfScreen';
 import type { User } from '../../types/AuthModule';
+import PdfTextExtractor from '../../utils/PdfTextExtractor';
+import DocumentPicker from '../components/DocumentPicker';
+import RAGService, { ProcessDocumentResult } from '../../utils/RAGService';
+import { Document } from '../../utils/AppwriteDB';
+import { defaultConfig } from '../../utils/Config';
 
 interface DashboardScreenProps {
   user: User;
@@ -21,6 +30,68 @@ interface DashboardScreenProps {
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
   const [loading, setLoading] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf'>('dashboard');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [ragService, setRagService] = useState<RAGService | null>(null);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const screenHeight = Dimensions.get('window').height;
+
+  // Load user documents on component mount
+  React.useEffect(() => {
+    loadUserDocuments();
+  }, []);
+
+  const loadUserDocuments = async () => {
+    setLoadingDocuments(true);
+    try {
+      const rag = await initializeRAGService();
+      if (rag) {
+        setRagService(rag);
+
+        // Test authentication first
+        const authTest = await rag.testDatabaseAuth();
+        console.log('Database auth test:', authTest);
+
+        if (!authTest.isAuthenticated) {
+          console.log('User appears as guest, but collections are accessible. Proceeding...');
+          // Run collection access test to verify collections work
+          console.log('Running collection access diagnostics...');
+          await rag.testCollectionAccess();
+        }
+
+        // Ensure user profile exists
+        console.log('Ensuring user profile exists...');
+        await rag.ensureUserProfile(user.id);
+
+        // Get documents
+        const documents = await rag.getUserDocuments(user.id);
+        setUserDocuments(documents);
+        console.log('Successfully loaded user documents:', documents.length);
+      }
+    } catch (error) {
+      console.error('Error loading user documents:', error);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
+
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} hours ago`;
+    return `${Math.floor(diffInMinutes / 1440)} days ago`;
+  };
+
+  const handleDocumentPress = async (document: Document) => {
+    // Navigate to chat with this document
+    setCurrentScreen('pdf');
+  };
 
   const handleLogout = async () => {
     Alert.alert(
@@ -50,22 +121,151 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     );
   };
 
-  const handleFeature = (featureName: string) => {
-    if (featureName === 'Upload PDF') {
-      setCurrentScreen('pdf');
-    } else {
-      Alert.alert('Coming Soon', `${featureName} feature will be available soon!`);
+  const showSourceDropdown = () => {
+    setShowDropdown(true);
+    Animated.timing(slideAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hideSourceDropdown = () => {
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowDropdown(false);
+    });
+  };
+
+  const initializeRAGService = async () => {
+    try {
+      const rag = new RAGService(defaultConfig);
+      await rag.initialize();
+      return rag;
+    } catch (error) {
+      console.error('Error initializing RAG service:', error);
+      Alert.alert('Error', 'Failed to initialize document processing service.');
     }
+  };
+
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string, rag: RAGService) => {
+    if (!rag) {
+      Alert.alert('Error', 'Document processing service not available');
+      return;
+    }
+
+    console.log('Processing document through RAG pipeline...');
+    setProcessing(true);
+    try {
+      const result: ProcessDocumentResult = await rag.processDocument(
+        user.id,
+        title,
+        text
+      );
+
+      if (result.success) {
+        console.log(`Document processed successfully: ${result.chunksProcessed} chunks, ${result.totalTokensUsed} tokens used`);
+
+        Alert.alert(
+          'Success!',
+          `Document processed successfully!\n\n• ${result.chunksProcessed} text chunks created\n• ${result.totalTokensUsed} tokens used\n\nYou can now access it from your documents.`,
+          [
+            { text: 'OK', style: 'default' },
+            { text: 'View Documents', style: 'default', onPress: () => setCurrentScreen('pdf') }
+          ]
+        );
+
+        // Reload user documents
+        await loadUserDocuments();
+      } else {
+        throw new Error(result.error || 'Failed to process document');
+      }
+    } catch (error: any) {
+      console.error('Error processing document:', error);
+
+      let errorMessage = 'Failed to process document for chat';
+      let errorTitle = 'Processing Error';
+
+      if (error.message.includes('429') || error.message.includes('Rate limit')) {
+        errorTitle = 'Rate Limit Reached';
+        errorMessage = 'VoyageAI API limit reached. Current limits:\n\n' +
+          '• Tier 1: 2,000 requests/minute\n' +
+          '• Tier 2: 4,000 requests/minute ($100+ spent)\n' +
+          '• Tier 3: 6,000 requests/minute ($1000+ spent)\n\n' +
+          'The app will retry automatically. For production use, consider upgrading your VoyageAI tier.';
+      } else if (error.message.includes('401') || error.message.includes('authentication')) {
+        errorTitle = 'Authentication Error';
+        errorMessage = 'There was an issue with the AI service authentication. Please check your configuration.';
+      } else if (error.message.includes('Network error')) {
+        errorTitle = 'Connection Error';
+        errorMessage = 'Unable to connect to the AI service. Please check your internet connection and try again.';
+      } else {
+        errorMessage = error.message || errorMessage;
+      }
+
+      Alert.alert(errorTitle, errorMessage);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handlePdfUpload = async () => {
+    hideSourceDropdown();
+    setUploading(true);
+
+    try {
+      const result = await DocumentPicker.pickSingle({
+        type: [DocumentPicker.types.pdf]
+      });
+
+      console.log('Extraction result:', result);
+      console.log('File URI:', result?.uri);
+      console.log("Starting PDF text extraction...");
+
+      const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
+      console.log('Extraction response:', response);
+
+      if (!response.success || !response.text) {
+        throw new Error(response.error || 'Failed to extract text from PDF');
+      }
+
+      // Process document through RAG pipeline
+      const ragService = await initializeRAGService();
+      if (ragService && response.text) {
+        await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '', ragService);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to extract PDF text');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCopiedText = () => {
+    hideSourceDropdown();
+    Alert.alert('Coming Soon', 'Copied text feature will be available soon!');
+  };
+
+  const handleWebsite = () => {
+    hideSourceDropdown();
+    Alert.alert('Coming Soon', 'Website feature will be available soon!');
+  };
+
+  const handleYoutube = () => {
+    hideSourceDropdown();
+    Alert.alert('Coming Soon', 'YouTube feature will be available soon!');
   };
 
   // If PDF screen is active, show it
   if (currentScreen === 'pdf') {
-
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.screenHeader}>
-          <TouchableOpacity 
-            style={styles.backButton} 
+          <TouchableOpacity
+            style={styles.backButton}
             onPress={() => setCurrentScreen('dashboard')}
           >
             <Text style={styles.backButtonText}>← Back to Dashboard</Text>
@@ -85,136 +285,173 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.userInfo}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user.name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.userDetails}>
-              <Text style={styles.welcomeText}>Welcome back,</Text>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-            disabled={loading}
-          >
-            <Text style={styles.logoutText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* App Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assests/icon.png')}
-            style={styles.appLogo}
-            resizeMode="contain"
-          />
-          <Text style={styles.appTitle}>Chat with PDF</Text>
-          <Text style={styles.appSubtitle}>
-            Upload, analyze, and chat with your PDF documents
-          </Text>
-        </View>
-
-        {/* Feature Cards */}
-        <View style={styles.featuresContainer}>
-          <Text style={styles.sectionTitle}>Features</Text>
-          
-          <TouchableOpacity
-            style={styles.featureCard}
-            onPress={() => handleFeature('Upload PDF')}
-          >
-            <View style={styles.featureIcon}>
-              <Text style={styles.featureEmoji}>📄</Text>
-            </View>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Upload PDF</Text>
-              <Text style={styles.featureDescription}>
-                Select and upload PDF documents from your device
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.featureCard}
-            onPress={() => handleFeature('Extract Text')}
-          >
-            <View style={styles.featureIcon}>
-              <Text style={styles.featureEmoji}>📝</Text>
-            </View>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Extract Text</Text>
-              <Text style={styles.featureDescription}>
-                Extract and analyze text content from PDF files
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.featureCard}
-            onPress={() => handleFeature('AI Chat')}
-          >
-            <View style={styles.featureIcon}>
-              <Text style={styles.featureEmoji}>🤖</Text>
-            </View>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>AI Chat</Text>
-              <Text style={styles.featureDescription}>
-                Chat with AI about your PDF document content
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.featureCard}
-            onPress={() => handleFeature('Document History')}
-          >
-            <View style={styles.featureIcon}>
-              <Text style={styles.featureEmoji}>📚</Text>
-            </View>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Document History</Text>
-              <Text style={styles.featureDescription}>
-                View and manage your previously uploaded documents
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* User Status */}
-        <View style={styles.statusContainer}>
-          <Text style={styles.sectionTitle}>Account Status</Text>
-          <View style={styles.statusCard}>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Account ID:</Text>
-              <Text style={styles.statusValue}>{user.id}</Text>
-            </View>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Email Verified:</Text>
-              <View style={styles.statusBadge}>
-                <Text style={[
-                  styles.statusBadgeText,
-                  user.emailVerification ? styles.verifiedText : styles.unverifiedText
-                ]}>
-                  {user.emailVerification ? '✓ Verified' : '⚠ Not Verified'}
+      <View style={styles.content}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity>
+              <Text style={styles.title}>ChatWithLLm</Text>
+            </TouchableOpacity>
+            <View style={styles.userInfo}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {user.name.charAt(0).toUpperCase()}
                 </Text>
               </View>
+              {/* <View style={styles.userDetails}>
+                <Text style={styles.welcomeText}>Welcome back,</Text>
+                <Text style={styles.userName}>{user.name}</Text>
+              </View> */}
             </View>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Member Since:</Text>
-              <Text style={styles.statusValue}>
-                {new Date(user.registration).toLocaleDateString()}
-              </Text>
+            {/* <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              disabled={loading}
+            >
+              <Text style={styles.logoutText}>Sign Out</Text>
+            </TouchableOpacity> */}
+          </View>
+
+          {/* Main Content */}
+          <View style={styles.mainContent}>
+            {/* Tab Navigation */}
+            {/* <View style={styles.tabNavigation}>
+              <TouchableOpacity style={styles.tabActive}>
+                <Text style={styles.tabTextActive}>Recent</Text>
+              </TouchableOpacity>
+            </View> */}
+
+            {/* Documents List */}
+            <View style={styles.documentsContainer}>
+              {loadingDocuments ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#007AFF" />
+                  <Text style={styles.loadingText}>Loading documents...</Text>
+                </View>
+              ) : userDocuments.length > 0 ? (
+                userDocuments.map((doc) => (
+                  <TouchableOpacity
+                    key={doc.$id}
+                    style={styles.documentCard}
+                    onPress={() => handleDocumentPress(doc)}
+                  >
+                    <View style={styles.documentIcon}>
+                      <Text style={styles.documentEmoji}>📄</Text>
+                    </View>
+                    <View style={styles.documentInfo}>
+                      <Text style={styles.documentTitle} numberOfLines={1}>
+                        {user.name}: {doc.title}
+                      </Text>
+                      <Text style={styles.documentMeta}>
+                        1 source • {formatTimeAgo(doc.createdAt)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity style={styles.documentAction}>
+                      <Text style={styles.documentActionIcon}>⋯</Text>
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIcon}>
+                    <View style={styles.laptopScreen}></View>
+                    <View style={styles.laptopBase}></View>
+                  </View>
+                  <Text style={styles.emptyTitle}>Let's get started</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Create your first notebook below.
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
+        </ScrollView>
+
+        {/* Fixed Create New Button at Bottom */}
+        <View style={styles.bottomContainer}>
+          <TouchableOpacity
+            style={[styles.createNewButton, (uploading || processing) && styles.disabledButton]}
+            onPress={showSourceDropdown}
+            disabled={uploading || processing}
+          >
+            {(uploading || processing) ? (
+              <View style={styles.buttonLoading}>
+                <ActivityIndicator size="small" color="#333" />
+                <Text style={styles.createNewButtonText}>
+                  {uploading ? 'Uploading...' : 'Processing...'}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.createNewButtonText}>+ Create New</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
+
+      {/* Source Selection Modal */}
+      <Modal
+        visible={showDropdown}
+        transparent={true}
+        animationType="none"
+        onRequestClose={hideSourceDropdown}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={hideSourceDropdown}
+        >
+          <Animated.View
+            style={[
+              styles.dropdownContainer,
+              {
+                transform: [
+                  {
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [screenHeight, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <TouchableOpacity activeOpacity={1}>
+              <View style={styles.dropdownHeader}>
+                <TouchableOpacity onPress={hideSourceDropdown} style={styles.closeButton}>
+                  <Text style={styles.closeButtonText}>✕</Text>
+                </TouchableOpacity>
+                <View style={styles.addSourceIcon}>
+                  <Text style={styles.addSourceEmoji}>📄</Text>
+                </View>
+                <Text style={styles.dropdownTitle}>Add Source</Text>
+                <Text style={styles.dropdownSubtitle}>
+                  Sources let NotebookLM base its responses on the information that matters most to you.
+                </Text>
+              </View>
+
+              <View style={styles.sourceOptions}>
+                <TouchableOpacity style={styles.sourceOption} onPress={handlePdfUpload}>
+                  <Text style={styles.sourceOptionText}>PDF</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sourceOption} onPress={handleWebsite}>
+                  <Text style={styles.sourceOptionText}>Website</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sourceOption} onPress={handleYoutube}>
+                  <Text style={styles.sourceOptionText}>YouTube</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sourceOption} onPress={handleCopiedText}>
+                  <Text style={styles.sourceOptionText}>Copied text</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -222,7 +459,18 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#2c2c2e',
+  },
+  content: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   screenHeader: {
     flexDirection: 'row',
@@ -244,56 +492,53 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '600',
   },
-  scrollContainer: {
-    flexGrow: 1,
-    padding: 20,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 30,
+    width: '100%',
+  },
+  title: {
+    color: "white",
+    width: "100%",
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    display: "flex",
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   avatarText: {
     color: 'white',
-    fontSize: 24,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   userDetails: {
     flex: 1,
   },
   welcomeText: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 12,
+    color: '#999',
   },
   userName: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
+    color: 'white',
     marginBottom: 2,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: '#666',
   },
   logoutButton: {
     backgroundColor: '#FF3B30',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
   },
   logoutText: {
@@ -301,140 +546,301 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-    padding: 20,
-    backgroundColor: 'white',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+  mainContent: {
+    flex: 1,
+    paddingHorizontal: 20,
   },
-  appLogo: {
+  tabNavigation: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginRight: 8,
+  },
+  tabActive: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginRight: 8,
+    backgroundColor: '#3a3a3c',
+    borderRadius: 20,
+  },
+  tabText: {
+    color: '#999',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  documentsContainer: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 12,
+  },
+  documentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3a3a3c',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  documentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#4a7dff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  documentEmoji: {
+    fontSize: 18,
+    color: 'white',
+  },
+  documentInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  documentTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  documentMeta: {
+    color: '#999',
+    fontSize: 14,
+  },
+  documentAction: {
+    padding: 8,
+  },
+  documentActionIcon: {
+    color: '#999',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyIcon: {
     width: 80,
     height: 80,
-    marginBottom: 16,
+    borderRadius: 16,
+    backgroundColor: '#3a3a3c',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    position: 'relative',
   },
-  appTitle: {
+  emptyTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: 'white',
     marginBottom: 8,
+    textAlign: 'center',
   },
-  appSubtitle: {
+  emptySubtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#999',
     textAlign: 'center',
     lineHeight: 22,
   },
-  featuresContainer: {
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-  },
-  featureCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
+  bottomContainer: {
     padding: 20,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    paddingBottom: 40,
   },
-  featureIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#f0f0f0',
+  logoSection: {
+    alignItems: 'center',
+    marginBottom: 60,
+  },
+  appLogo: {
+    width: 60,
+    height: 60,
+    marginBottom: 16,
+    tintColor: 'white',
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: 'white',
+    textAlign: 'center',
+  },
+  getStartedSection: {
+    alignItems: 'center',
+    marginBottom: 60,
+  },
+  notebookIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    backgroundColor: '#3a3a3c',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginBottom: 24,
+    position: 'relative',
   },
-  featureEmoji: {
+  laptopScreen: {
+    width: 36,
+    height: 24,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 2,
+    borderWidth: 2,
+    borderColor: '#6c6c70',
+    marginBottom: 2,
+  },
+  laptopBase: {
+    width: 48,
+    height: 6,
+    backgroundColor: '#6c6c70',
+    borderRadius: 3,
+  },
+  getStartedTitle: {
     fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  featureContent: {
-    flex: 1,
-  },
-  featureTitle: {
+  getStartedSubtitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 22,
   },
-  featureDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  statusContainer: {
-    marginBottom: 20,
-  },
-  statusCard: {
+  createNewButton: {
     backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 25,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 2,
-  },
-  statusItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    elevation: 8,
     alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
-  statusLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  statusValue: {
-    fontSize: 14,
+  createNewButtonText: {
     color: '#333',
-    fontWeight: '500',
-    flex: 1,
-    textAlign: 'right',
-    marginLeft: 16,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusBadgeText: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '600',
   },
-  verifiedText: {
-    color: '#34C759',
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  unverifiedText: {
-    color: '#FF9500',
+  disabledButton: {
+    opacity: 0.6,
+  },
+  documentsButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#555',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  documentsButtonText: {
+    color: '#999',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  dropdownContainer: {
+    backgroundColor: '#2c2c2e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+    minHeight: 400,
+  },
+  dropdownHeader: {
+    alignItems: 'center',
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3a3a3c',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#3a3a3c',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#999',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  addSourceIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#4a7dff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  addSourceEmoji: {
+    fontSize: 24,
+    color: 'white',
+  },
+  dropdownTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 8,
+  },
+  dropdownSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  sourceOptions: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 20,
+  },
+  sourceOption: {
+    backgroundColor: '#3a3a3c',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  sourceOptionText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
 
