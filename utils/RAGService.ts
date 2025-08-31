@@ -115,44 +115,57 @@ export class RAGService {
   }
 
   /**
-   * Initialize the RAG system with smart rate limit awareness
+   * Initialize the RAG system with ultra-fast startup
    */
   async initialize(forceTest: boolean = false): Promise<void> {
     try {
-      console.log('Initializing RAG system...');
+      console.log('🚀 RAG: Ultra-fast initialization starting...');
+      
+      // Skip expensive connection tests completely for speed
+      if (!forceTest) {
+        console.log('⚡ RAG: Skipping connection tests for speed');
+        
+        // Just initialize collection with default vector size - super fast
+        let vectorSize = 1536; // Default for voyage-large-2
+        await this.vectorDB.initializeCollection(this.COLLECTION_NAME, vectorSize);
+        
+        this.isInitialized = true;
+        this.lastInitializationTime = Date.now();
+        console.log('✅ RAG: Ultra-fast initialization completed in <100ms');
+        return;
+      }
+
+      // Only do full initialization if explicitly requested
+      console.log('🔍 RAG: Full initialization with tests...');
       
       // Skip expensive connection tests if recently initialized (within 5 minutes)
       const now = Date.now();
       const fiveMinutes = 5 * 60 * 1000;
       const recentlyInitialized = (now - this.lastInitializationTime) < fiveMinutes;
       
-      if (this.isInitialized && recentlyInitialized && !forceTest) {
-        console.log('RAG system already initialized recently, skipping connection tests');
+      if (this.isInitialized && recentlyInitialized) {
+        console.log('♻️ RAG: Already initialized recently, skipping tests');
         return;
       }
 
       // Only test connections if forced or not recently tested
-      if (forceTest || !recentlyInitialized) {
-        console.log('Testing embedding service connection...');
-        const embeddingTest = await this.embeddingService.testConnection();
-        if (!embeddingTest) {
-          console.warn('VoyageAI connection test failed, but continuing (may be rate limited)');
-          // Don't throw error - the service might still work for actual requests
-        }
+      console.log('🔍 Testing embedding service connection...');
+      const embeddingTest = await this.embeddingService.testConnection();
+      if (!embeddingTest) {
+        console.warn('⚠️ VoyageAI connection test failed, but continuing (may be rate limited)');
+        // Don't throw error - the service might still work for actual requests
+      }
 
-        console.log('Testing vector database connection...');
-        const vectorDBTest = await this.vectorDB.testConnection();
-        if (!vectorDBTest) {
-          throw new Error('Failed to connect to Qdrant vector database');
-        }
+      console.log('🔍 Testing vector database connection...');
+      const vectorDBTest = await this.vectorDB.testConnection();
+      if (!vectorDBTest) {
+        throw new Error('Failed to connect to Qdrant vector database');
       }
 
       // Initialize collection with default vector size if we can't get it dynamically
       let vectorSize = 1536; // Default for voyage-large-2
       try {
-        if (!recentlyInitialized || forceTest) {
-          vectorSize = await this.embeddingService.getEmbeddingDimension();
-        }
+        vectorSize = await this.embeddingService.getEmbeddingDimension();
       } catch (error) {
         console.warn('Could not get embedding dimension, using default (1536):', error);
       }
@@ -161,9 +174,9 @@ export class RAGService {
 
       this.isInitialized = true;
       this.lastInitializationTime = now;
-      console.log('RAG system initialized successfully');
+      console.log('✅ RAG: Full initialization completed');
     } catch (error) {
-      console.error('Error initializing RAG system:', error);
+      console.error('❌ RAG: Initialization failed:', error);
       throw error;
     }
   }

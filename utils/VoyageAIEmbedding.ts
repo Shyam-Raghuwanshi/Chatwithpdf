@@ -126,6 +126,10 @@ export class VoyageAIEmbedding {
     if (!VoyageAIEmbedding.instance) {
       VoyageAIEmbedding.instance = new VoyageAIEmbedding(config);
       console.log('🎯 Created singleton VoyageAI instance');
+    } else if (config && Object.keys(config).length > 0) {
+      // Update existing instance config if provided
+      VoyageAIEmbedding.instance.updateConfig(config);
+      console.log('⚙️ Updated existing VoyageAI instance configuration');
     } else {
       console.log('♻️ Reusing existing VoyageAI instance');
     }

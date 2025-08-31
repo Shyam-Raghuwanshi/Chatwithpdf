@@ -20,6 +20,8 @@ import { Document } from '../../utils/AppwriteDB';
 import { defaultConfig } from '../../utils/Config';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
+import { useServices } from '../../utils/useServices';
+import DashboardScreen from './DashboardScreen';
 
 interface ChatMessage {
   id: string;
@@ -59,8 +61,6 @@ const ChatScreen: React.FC<Props> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [ragService, setRagService] = useState<RAGService | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState<'sources' | 'chat'>('chat');
   const [chatSources, setChatSources] = useState<Document[]>([]); // Sources specific to this chat
   const [availableSources, setAvailableSources] = useState<Document[]>([]); // Available sources to add
@@ -74,15 +74,20 @@ const ChatScreen: React.FC<Props> = ({
   const screenHeight = Dimensions.get('window').height;
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
 
-  // Initialize RAG service and sources
-  useEffect(() => {
-    if (existingRAGService) {
-      setRagService(existingRAGService);
-      setIsInitialized(true);
-    } else {
-      initializeRAGService();
-    }
-  }, [existingRAGService]);
+  // Use centralized service management, but prefer external service if provided
+  const {
+    ragService: centralizedRagService,
+    isLoading: servicesLoading,
+    isInitialized: servicesInitialized,
+    getRagService
+  } = useServices({ 
+    autoInitialize: !existingRAGService, // Don't auto-initialize if external service provided
+    userId 
+  });
+
+  // Use external RAG service if provided, otherwise use centralized one
+  const ragService = existingRAGService || centralizedRagService;
+  const isInitialized = existingRAGService ? true : servicesInitialized;
 
   // Initialize sources with selected document and manage chat-specific sources
   useEffect(() => {
@@ -130,40 +135,6 @@ const ChatScreen: React.FC<Props> = ({
       }
     } catch (error) {
       console.error('Error loading chat-specific documents:', error);
-    }
-  };
-
-  const initializeRAGService = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Use existing service if provided (avoids re-initialization and rate limits)
-      if (existingRAGService) {
-        console.log('Using existing RAG service to avoid rate limits');
-        setRagService(existingRAGService);
-        setIsInitialized(true);
-        return;
-      }
-
-      // Only create new service if none provided
-      console.log('Creating new RAG service...');
-      const rag = new RAGService(defaultConfig);
-      // Initialize without forced connection test to avoid rate limits
-      await rag.initialize(false);
-      setRagService(rag);
-      setIsInitialized(true);
-    } catch (error) {
-      console.error('Error initializing RAG service:', error);
-      Alert.alert(
-        'Initialization Error', 
-        'Failed to initialize chat service. This might be due to rate limiting. Please wait a moment and try again.',
-        [
-          { text: 'OK', style: 'default' },
-          { text: 'Retry', style: 'default', onPress: () => setTimeout(initializeRAGService, 5000) }
-        ]
-      );
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -281,16 +252,23 @@ const ChatScreen: React.FC<Props> = ({
   };
 
   // Process document through RAG pipeline
-  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string, rag: RAGService) => {
-    if (!rag) {
-      Alert.alert('Error', 'Document processing service not available');
-      return;
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string) => {
+    let serviceToUse = ragService;
+    
+    // Get service if not available
+    if (!serviceToUse) {
+      try {
+        serviceToUse = await getRagService();
+      } catch (error) {
+        Alert.alert('Error', 'Document processing service not available');
+        return;
+      }
     }
 
     console.log('Processing document through RAG pipeline for chat:', currentChatId);
     setProcessing(true);
     try {
-      const result: ProcessDocumentResult = await rag.processDocument(
+      const result: ProcessDocumentResult = await serviceToUse.processDocument(
         userId,
         title,
         text,
@@ -373,8 +351,7 @@ const ChatScreen: React.FC<Props> = ({
         await processDocumentThroughRAG(
           result?.name || 'Uploaded Document',
           response.text,
-          result?.uri || '',
-          ragService
+          result?.uri || ''
         );
       } else {
         Alert.alert('Error', 'Chat service not available');
@@ -695,11 +672,6 @@ const ChatScreen: React.FC<Props> = ({
               Chat
             </Text>
           </TouchableOpacity>
-
-          <View style={styles.navTab}>
-            <Text style={[styles.navIcon, styles.disabledIcon]}>🎨</Text>
-            <Text style={[styles.navLabel, styles.disabledLabel]}>Studio</Text>
-          </View>
         </View>
 
         {/* Add Source Modal */}

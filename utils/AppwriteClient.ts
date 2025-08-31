@@ -30,7 +30,16 @@ class AppwriteClientSingleton {
    * Reinitialize with fresh client (useful after OAuth)
    */
   reinitialize(endpoint: string, projectId: string): void {
-    console.log('Reinitializing Appwrite client...');
+    // Only reinitialize if endpoint or projectId has changed
+    const currentEndpoint = this.client?.config?.endpoint;
+    const currentProjectId = this.client?.config?.project;
+    
+    if (currentEndpoint === endpoint && currentProjectId === projectId && this.isInitialized) {
+      console.log('♻️ Appwrite client already initialized with same config, skipping reinitialize');
+      return;
+    }
+    
+    console.log('🔄 Reinitializing Appwrite client...', { endpoint, projectId });
     this.client = new Client()
       .setEndpoint(endpoint)
       .setProject(projectId);

@@ -15,12 +15,14 @@ import {
 } from 'react-native';
 import auth from '../../utils/AppwriteAuth';
 import PdfScreen from './PdfScreen';
+import SettingsScreen from './SettingsScreen';
 import type { User } from '../../types/AuthModule';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
 import RAGService, { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { defaultConfig } from '../../utils/Config';
+import { useRAGService } from '../../utils/useServices';
 
 interface DashboardScreenProps {
   user: User;
@@ -29,13 +31,10 @@ interface DashboardScreenProps {
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
   const [loading, setLoading] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings'>('dashboard');
   const [showDropdown, setShowDropdown] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
-  const [loadingDocuments, setLoadingDocuments] = useState(true);
-  const [ragService, setRagService] = useState<RAGService | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
@@ -43,47 +42,29 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const slideAnim = useRef(new Animated.Value(0)).current;
   const screenHeight = Dimensions.get('window').height;
   
-  // Cache RAG service to avoid reinitializing
-  const ragServiceRef = useRef<RAGService | null>(null);
+  // Use centralized service management
+  const {
+    ragService,
+    isLoading: servicesLoading,
+    isInitialized: servicesInitialized,
+    error: servicesError,
+    documents: userDocuments,
+    loadingDocuments,
+    loadUserDocuments,
+    serviceStats
+  } = useRAGService(user.id);
 
-  // Load user documents on component mount
+  // Log service statistics for debugging
   React.useEffect(() => {
-    loadUserDocuments();
-  }, []);
-
-  const loadUserDocuments = async () => {
-    setLoadingDocuments(true);
-    try {
-      const rag = await initializeRAGService();
-      if (rag) {
-        setRagService(rag);
-
-        // Test authentication first
-        const authTest = await rag.testDatabaseAuth();
-        console.log('Database auth test:', authTest);
-
-        if (!authTest.isAuthenticated) {
-          console.log('User appears as guest, but collections are accessible. Proceeding...');
-          // Run collection access test to verify collections work
-          console.log('Running collection access diagnostics...');
-          await rag.testCollectionAccess();
-        }
-
-        // Ensure user profile exists
-        console.log('Ensuring user profile exists...');
-        await rag.ensureUserProfile(user.id);
-
-        // Get documents
-        const documents = await rag.getUserDocuments(user.id);
-        setUserDocuments(documents);
-        console.log('Successfully loaded user documents:', documents.length);
-      }
-    } catch (error) {
-      console.error('Error loading user documents:', error);
-    } finally {
-      setLoadingDocuments(false);
+    if (serviceStats.ragServiceExists) {
+      console.log('📊 Service Stats:', {
+        age: Math.round(serviceStats.ragServiceAge / 1000) + 's',
+        exists: serviceStats.ragServiceExists,
+        isInitializing: serviceStats.isInitializing,
+        lastInit: serviceStats.lastInitialization?.toLocaleString()
+      });
     }
-  };
+  }, [serviceStats]);
 
   const formatTimeAgo = (date: Date) => {
     const now = new Date();
@@ -93,6 +74,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} hours ago`;
     return `${Math.floor(diffInMinutes / 1440)} days ago`;
+  };
+
+  const handleProfilePress = () => {
+    setCurrentScreen('settings');
   };
 
   const handleDocumentPress = async (document: Document) => {
@@ -117,22 +102,18 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       const userId = user.id;
       const documentId = documentToDelete.$id;
       
-      // Optimistically remove from UI first (for better UX)
-      setUserDocuments(prev => prev.filter(doc => doc.$id !== documentId));
-      
       // Close modal immediately
       setShowDeleteModal(false);
       setDocumentToDelete(null);
       
-      // Delete from database in background
+      // Delete from database
       await ragService.deleteDocument(userId, documentId);
+      
+      // Reload documents to reflect changes
+      await loadUserDocuments();
       
     } catch (error) {
       console.error('Error deleting document:', error);
-      
-      // Revert optimistic update on error
-      await loadUserDocuments();
-      
       Alert.alert('Error', 'Failed to delete document. Please try again.');
     } finally {
       setDeletingDocument(false);
@@ -186,27 +167,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     });
   };
 
-  const initializeRAGService = async () => {
-    // Return cached service if available
-    if (ragServiceRef.current) {
-      return ragServiceRef.current;
-    }
-    
-    try {
-      const rag = new RAGService(defaultConfig);
-      await rag.initialize();
-      
-      // Cache the service
-      ragServiceRef.current = rag;
-      return rag;
-    } catch (error) {
-      console.error('Error initializing RAG service:', error);
-      Alert.alert('Error', 'Failed to initialize document processing service.');
-    }
-  };
-
-  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string, rag: RAGService) => {
-    if (!rag) {
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string) => {
+    if (!ragService) {
       Alert.alert('Error', 'Document processing service not available');
       return;
     }
@@ -214,7 +176,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     console.log('Processing document through RAG pipeline...');
     setProcessing(true);
     try {
-      const result: ProcessDocumentResult = await rag.processDocument(
+      const result: ProcessDocumentResult = await ragService.processDocument(
         user.id,
         title,
         text
@@ -287,9 +249,14 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       }
 
       // Process document through RAG pipeline
-      const ragService = await initializeRAGService();
       if (ragService && response.text) {
-        await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '', ragService);
+        await processDocumentThroughRAG(
+          result?.name || 'Uploaded Document', 
+          response.text, 
+          result?.uri || ''
+        );
+      } else {
+        Alert.alert('Error', 'Document processing service not available. Please try again.');
       }
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to extract PDF text');
@@ -313,6 +280,19 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     Alert.alert('Coming Soon', 'YouTube feature will be available soon!');
   };
 
+  // If settings screen is active, show it
+  if (currentScreen === 'settings') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <SettingsScreen 
+          user={user} 
+          onBack={() => setCurrentScreen('dashboard')}
+          onLogout={onLogout}
+        />
+      </SafeAreaView>
+    );
+  }
+
   // If PDF screen is active, show it
   if (currentScreen === 'pdf') {
     return (
@@ -322,6 +302,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           selectedDocument={selectedDocument} 
           ragService={ragService}
           userDocuments={userDocuments}
+          onBack={() => setCurrentScreen('dashboard')}
         />
       </SafeAreaView>
     );
@@ -337,11 +318,11 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               <Text style={styles.title}>ChatWithLLm</Text>
             </TouchableOpacity>
             <View style={styles.userInfo}>
-              <View style={styles.avatar}>
+              <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
                 <Text style={styles.avatarText}>
                   {user.name.charAt(0).toUpperCase()}
                 </Text>
-              </View>
+              </TouchableOpacity>
               {/* <View style={styles.userDetails}>
                 <Text style={styles.welcomeText}>Welcome back,</Text>
                 <Text style={styles.userName}>{user.name}</Text>
@@ -367,10 +348,15 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
             {/* Documents List */}
             <View style={styles.documentsContainer}>
-              {loadingDocuments ? (
+              {(loadingDocuments || servicesLoading) ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color="#007AFF" />
-                  <Text style={styles.loadingText}>Loading documents...</Text>
+                  <Text style={styles.loadingText}>
+                    {servicesLoading ? 'Initializing services...' : 'Loading documents...'}
+                  </Text>
+                  {servicesError && (
+                    <Text style={styles.errorText}>{servicesError}</Text>
+                  )}
                 </View>
               ) : userDocuments.length > 0 ? (
                 userDocuments.map((doc) => (
@@ -672,6 +658,12 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 16,
     marginTop: 12,
+  },
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
   documentCard: {
     flexDirection: 'row',
