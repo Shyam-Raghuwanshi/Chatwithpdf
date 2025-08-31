@@ -1,5 +1,42 @@
 import axios, { AxiosResponse } from 'axios';
 
+/**
+ * Simple rate limiter to prevent hitting API limits
+ */
+class RateLimiter {
+  private requests: number[] = [];
+  private maxRequests: number;
+  private timeWindow: number;
+
+  constructor(maxRequests: number = 10, timeWindow: number = 60000) { // 10 requests per minute by default
+    this.maxRequests = maxRequests;
+    this.timeWindow = timeWindow;
+  }
+
+  async waitIfNeeded(): Promise<void> {
+    const now = Date.now();
+    
+    // Remove old requests outside the time window
+    this.requests = this.requests.filter(time => now - time < this.timeWindow);
+    
+    if (this.requests.length >= this.maxRequests) {
+      const oldestRequest = this.requests[0];
+      const waitTime = this.timeWindow - (now - oldestRequest);
+      
+      if (waitTime > 0) {
+        console.log(`⏳ Rate limit protection: waiting ${waitTime}ms before next request...`);
+        await this.delay(waitTime);
+      }
+    }
+    
+    this.requests.push(now);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
 export interface EmbeddingRequest {
   input: string | string[];
   model?: string;
@@ -28,6 +65,7 @@ export interface VoyageAIConfig {
 
 export class VoyageAIEmbedding {
   private config: VoyageAIConfig;
+  private rateLimiter: RateLimiter;
 
   constructor(config: Partial<VoyageAIConfig> = {}) {
     this.config = {
@@ -36,6 +74,9 @@ export class VoyageAIEmbedding {
       model: config.model || "voyage-large-2",
       timeout: config.timeout || 30000,
     };
+    
+    // Initialize rate limiter: 10 requests per minute to be conservative
+    this.rateLimiter = new RateLimiter(10, 60000);
   }
 
   /**
@@ -75,6 +116,9 @@ export class VoyageAIEmbedding {
     }
 
     try {
+      // Apply rate limiting
+      await this.rateLimiter.waitIfNeeded();
+
       const requestData: EmbeddingRequest = {
         input: cleanTexts,
         model: this.config.model,
@@ -103,12 +147,26 @@ export class VoyageAIEmbedding {
       return sortedData.map(item => item.embedding);
     } catch (error: any) {
       if (error.response) {
+        const status = error.response.status;
         const errorMessage = error.response.data?.error?.message ||
           error.response.data?.message ||
-          `HTTP ${error.response.status}: ${error.response.statusText}`;
-        throw new Error(`VoyageAI API Error: ${errorMessage}`);
+          error.response.statusText ||
+          'Unknown API error';
+
+        // Provide specific error messages for common issues
+        if (status === 429) {
+          throw new Error(`VoyageAI API Error: HTTP 429: Rate limit exceeded. Please wait before making more requests.`);
+        } else if (status === 401) {
+          throw new Error(`VoyageAI API Error: HTTP 401: Invalid API key or authentication failed.`);
+        } else if (status === 403) {
+          throw new Error(`VoyageAI API Error: HTTP 403: Access forbidden. Check your API key permissions.`);
+        } else if (status === 400) {
+          throw new Error(`VoyageAI API Error: HTTP 400: Bad request. ${errorMessage}`);
+        } else {
+          throw new Error(`VoyageAI API Error: HTTP ${status}: ${errorMessage}`);
+        }
       } else if (error.request) {
-        throw new Error('Network error: Unable to reach VoyageAI API');
+        throw new Error('Network error: Unable to reach VoyageAI API. Check your internet connection.');
       } else {
         throw new Error(`Embedding generation error: ${error.message}`);
       }
@@ -121,10 +179,11 @@ export class VoyageAIEmbedding {
   async generateEmbeddingsWithRetry(
     texts: string[],
     inputType: 'query' | 'document' = 'document',
-    maxRetries: number = 3,
-    retryDelay: number = 1000
+    maxRetries: number = 5,
+    initialRetryDelay: number = 1000
   ): Promise<number[][]> {
     let lastError: Error | null = null;
+    let retryDelay = initialRetryDelay;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -133,12 +192,20 @@ export class VoyageAIEmbedding {
         lastError = error;
 
         // Don't retry on authentication or bad request errors
-        if (error.message.includes('401') || error.message.includes('400')) {
+        if (error.message.includes('401') || error.message.includes('400') || error.message.includes('403')) {
           throw error;
         }
 
-        if (attempt < maxRetries - 1) {
+        // Special handling for rate limits (429)
+        if (error.message.includes('429')) {
+          // For rate limits, wait longer
+          retryDelay = Math.max(retryDelay, 5000); // At least 5 seconds for rate limits
+          console.warn(`Rate limit hit (attempt ${attempt + 1}/${maxRetries}), waiting ${retryDelay}ms before retry...`);
+        } else {
           console.warn(`Embedding attempt ${attempt + 1} failed, retrying in ${retryDelay}ms...`);
+        }
+
+        if (attempt < maxRetries - 1) {
           await this.delay(retryDelay);
           retryDelay *= 2; // Exponential backoff
         }
@@ -154,7 +221,7 @@ export class VoyageAIEmbedding {
   async generateEmbeddingsBatch(
     texts: string[],
     inputType: 'query' | 'document' = 'document',
-    batchSize: number = 50
+    batchSize: number = 20 // Reduced from 50 to be more conservative
   ): Promise<number[][]> {
     if (texts.length <= batchSize) {
       return this.generateEmbeddingsWithRetry(texts, inputType);
@@ -164,23 +231,71 @@ export class VoyageAIEmbedding {
 
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
-      console.log(`Processing embedding batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)}`);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(texts.length / batchSize);
+      
+      console.log(`Processing embedding batch ${batchNumber}/${totalBatches} (${batch.length} texts)`);
 
       try {
         const batchEmbeddings = await this.generateEmbeddingsWithRetry(batch, inputType);
         allEmbeddings.push(...batchEmbeddings);
+        console.log(`✅ Batch ${batchNumber} completed successfully`);
       } catch (error) {
-        console.error(`Error processing batch starting at index ${i}:`, error);
-        throw error;
+        console.error(`❌ Error processing batch ${batchNumber}:`, error);
+        
+        // If batch fails due to rate limiting, try processing items one by one
+        if (error instanceof Error && error.message.includes('429')) {
+          console.log(`🔄 Falling back to one-by-one processing for batch ${batchNumber}...`);
+          try {
+            const oneByOneEmbeddings = await this.generateEmbeddingsOneByOne(batch, inputType);
+            allEmbeddings.push(...oneByOneEmbeddings);
+            console.log(`✅ Batch ${batchNumber} completed with fallback method`);
+          } catch (fallbackError) {
+            throw fallbackError;
+          }
+        } else {
+          throw error;
+        }
       }
 
-      // Small delay between batches to be respectful to the API
+      // Longer delay between batches to avoid rate limits
       if (i + batchSize < texts.length) {
-        await this.delay(100);
+        const delay = 2000; // 2 seconds between batches
+        console.log(`⏳ Waiting ${delay}ms before next batch to respect rate limits...`);
+        await this.delay(delay);
       }
     }
 
     return allEmbeddings;
+  }
+
+  /**
+   * Process embeddings one by one as a fallback for rate limiting
+   */
+  private async generateEmbeddingsOneByOne(
+    texts: string[],
+    inputType: 'query' | 'document' = 'document'
+  ): Promise<number[][]> {
+    const embeddings: number[][] = [];
+    
+    for (let i = 0; i < texts.length; i++) {
+      console.log(`Processing text ${i + 1}/${texts.length} individually...`);
+      
+      try {
+        const embedding = await this.generateEmbeddingsWithRetry([texts[i]], inputType);
+        embeddings.push(embedding[0]);
+        
+        // Wait between individual requests
+        if (i < texts.length - 1) {
+          await this.delay(3000); // 3 seconds between individual requests
+        }
+      } catch (error) {
+        console.error(`Failed to process individual text ${i + 1}:`, error);
+        throw error;
+      }
+    }
+    
+    return embeddings;
   }
 
   /**

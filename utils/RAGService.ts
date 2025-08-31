@@ -58,7 +58,7 @@ export class RAGService {
     this.config = config;
     this.textChunker = TextChunker;
     this.embeddingService = new VoyageAIEmbedding(config.voyageAI);
-    this.vectorDB = new QdrantVectorDB(config.qdrant);
+    this.vectorDB = new QdrantVectorDB();
     this.appwriteDB = new AppwriteDB(config.appwrite);
   }
 
@@ -139,8 +139,7 @@ export class RAGService {
   async processDocument(
     userId: string,
     documentTitle: string,
-    textContent: string,
-    fileId: string
+    textContent: string
   ): Promise<ProcessDocumentResult> {
     try {
       console.log(`Processing document: ${documentTitle}`);
@@ -207,8 +206,6 @@ export class RAGService {
       const document = await this.appwriteDB.storeDocument({
         userId,
         title: documentTitle,
-        fileId,
-        textContent: textContent.substring(0, 5000), // Store first 5000 chars as per schema
         embeddingId: documentId,
         createdAt: new Date(),
       });

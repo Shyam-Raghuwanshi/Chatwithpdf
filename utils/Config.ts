@@ -20,6 +20,7 @@ export interface AppConfig {
             apiKey?: string;
             model?: string;
             apiUrl?: string;
+            timeout?: number;
       };
       chunking: {
             chunkSize: number;
@@ -46,16 +47,17 @@ export const defaultConfig: AppConfig = {
             apiKey: "pa-DwJLlC6KMr4In_-Hn6k1BXFjumu54MRV66Z9-Xn3kg1",
             model: 'voyage-large-2',
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
+            timeout: 45000, // 45 seconds timeout for embedding requests
       },
       chunking: {
-            // Chunk size in tokens (approximately)
-            chunkSize: 600,
+            // Chunk size in tokens (approximately) - increased to reduce API calls
+            chunkSize: 800,
             // Overlap between chunks in tokens
-            overlap: 200,
+            overlap: 150,
             // Try to preserve paragraph boundaries
             preserveParagraphs: true,
             // Minimum chunk size to avoid tiny chunks
-            minChunkSize: 100,
+            minChunkSize: 200,
       },
 };
 

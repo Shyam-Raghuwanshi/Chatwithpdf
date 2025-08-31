@@ -132,8 +132,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       const result: ProcessDocumentResult = await rag.processDocument(
         userId,
         title,
-        text,
-        fileUri // Using file URI as fileId for now
+        text
       );
 
       if (result.success) {
@@ -162,7 +161,25 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       }
     } catch (error: any) {
       console.error('Error processing document:', error);
-      Alert.alert('Processing Error', error.message || 'Failed to process document for chat');
+      
+      // Provide user-friendly error messages
+      let errorMessage = 'Failed to process document for chat';
+      let errorTitle = 'Processing Error';
+      
+      if (error.message.includes('429') || error.message.includes('Rate limit')) {
+        errorTitle = 'Rate Limit Reached';
+        errorMessage = 'The AI service is currently busy. Please wait a few minutes and try again. This helps ensure fair usage for all users.';
+      } else if (error.message.includes('401') || error.message.includes('authentication')) {
+        errorTitle = 'Authentication Error';
+        errorMessage = 'There was an issue with the AI service authentication. Please check your configuration.';
+      } else if (error.message.includes('Network error')) {
+        errorTitle = 'Connection Error';
+        errorMessage = 'Unable to connect to the AI service. Please check your internet connection and try again.';
+      } else {
+        errorMessage = error.message || errorMessage;
+      }
+      
+      Alert.alert(errorTitle, errorMessage);
     } finally {
       setProcessing(false);
     }

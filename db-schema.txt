@@ -25,10 +25,6 @@ userId → String (size: 36, required)
 
 title → String (size: 255, required)
 
-fileId → String (size: 36, required) – reference to Appwrite Storage file
-
-textContent → String (size: 5000, optional) – depends on how much text you want to store directly
-
 embeddingId → String (size: 64, optional) – useful if you create embeddings with an external service
 
 createdAt → Datetime, required
