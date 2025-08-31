@@ -18,6 +18,7 @@ export interface Document {
   userId: string;
   title: string;
   embeddingId?: string;
+  chatId?: string; // Virtual field - derived from embeddingId pattern
   createdAt: Date;
 }
 
@@ -332,8 +333,15 @@ export class AppwriteDB {
         createdAt: new Date().toISOString(),
       };
 
-      // Only include optional fields if they have values
-      if (documentData.embeddingId) {
+      // Handle embeddingId and chatId
+      if (documentData.chatId && documentData.embeddingId) {
+        // For chat-specific documents, we need to store the chatId somewhere
+        // Since embeddingId has a 64-char limit, we'll store chatId in the title instead
+        // by appending a hidden suffix, and keep the original embeddingId
+        dataToStore.embeddingId = documentData.embeddingId;
+        dataToStore.title = `${documentData.title}#CHAT:${documentData.chatId}`;
+      } else if (documentData.embeddingId) {
+        // Regular document
         dataToStore.embeddingId = documentData.embeddingId;
       }
 
@@ -365,24 +373,35 @@ export class AppwriteDB {
   /**
    * Get documents for a user (updated with working permissions)
    */
-  async getUserDocuments(userId: string, limit: number = 50): Promise<Document[]> {
+  async getUserDocuments(userId: string, limit: number = 50, chatId?: string): Promise<Document[]> {
     try {
-      console.log('Attempting to get user documents for:', userId);
+      console.log('Attempting to get user documents for:', userId, chatId ? `(chatId: ${chatId})` : '(all documents)');
 
-      // Since collections are now accessible, proceed directly with the query
-      // The user is currently in guest mode, but collections allow guest access
+      const queries = [
+        Query.equal('userId', userId),
+        Query.orderDesc('createdAt'),
+        Query.limit(limit),
+      ];
+
       const result = await this.tablesDB.listRows(
         this.config.databaseId,
         this.COLLECTIONS.DOCUMENTS,
-        [
-          Query.equal('userId', userId),
-          Query.orderDesc('createdAt'),
-          Query.limit(limit),
-        ]
+        queries
       );
 
-      console.log('Documents fetched successfully:', result.rows.length);
-      return result.rows.map(doc => this.transformDocument(doc));
+      let documents = result.rows.map(doc => this.transformDocument(doc));
+
+      // Filter based on chatId
+      if (chatId) {
+        // Get documents specific to this chat
+        documents = documents.filter(doc => doc.chatId === chatId);
+      } else {
+        // For dashboard, exclude documents that belong to specific chats
+        documents = documents.filter(doc => !doc.chatId);
+      }
+
+      console.log('Documents fetched successfully:', documents.length);
+      return documents;
 
     } catch (error: any) {
       console.error('Error getting user documents:', error);
@@ -600,10 +619,21 @@ export class AppwriteDB {
   }
 
   private transformDocument(doc: any): Document {
-    return {
+    const transformed: Document = {
       ...doc,
       createdAt: new Date(doc.createdAt),
     };
+
+    // Extract chatId from title if it's encoded there
+    if (doc.title && doc.title.includes('#CHAT:')) {
+      const parts = doc.title.split('#CHAT:');
+      if (parts.length === 2) {
+        transformed.title = parts[0]; // Original title
+        transformed.chatId = parts[1]; // Extracted chat ID
+      }
+    }
+
+    return transformed;
   }
 
   private transformChat(doc: any): Chat {

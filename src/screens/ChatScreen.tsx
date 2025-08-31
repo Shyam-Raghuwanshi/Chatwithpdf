@@ -15,9 +15,11 @@ import {
   Dimensions,
   Modal,
 } from 'react-native';
-import RAGService, { ChatResponse } from '../../utils/RAGService';
+import RAGService, { ChatResponse, ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { defaultConfig } from '../../utils/Config';
+import PdfTextExtractor from '../../utils/PdfTextExtractor';
+import DocumentPicker from '../components/DocumentPicker';
 
 interface ChatMessage {
   id: string;
@@ -63,6 +65,8 @@ const ChatScreen: React.FC<Props> = ({
   const [chatSources, setChatSources] = useState<Document[]>([]); // Sources specific to this chat
   const [availableSources, setAvailableSources] = useState<Document[]>([]); // Available sources to add
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const screenHeight = Dimensions.get('window').height;
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
@@ -84,9 +88,10 @@ const ChatScreen: React.FC<Props> = ({
       setChatSources([selectedDocument]);
     }
     
-    // Set available sources (excluding already selected ones)
+    // Set available sources (excluding already selected ones and chat-specific documents)
+    // Only show global documents in available sources, not documents from other chats
     const available = userDocuments.filter(doc => 
-      !selectedDocument || doc.$id !== selectedDocument.$id
+      (!selectedDocument || doc.$id !== selectedDocument.$id) && !doc.chatId
     );
     setAvailableSources(available);
   }, [selectedDocument, userDocuments]);
@@ -95,8 +100,35 @@ const ChatScreen: React.FC<Props> = ({
   useEffect(() => {
     if (ragService && isInitialized) {
       loadChatHistory();
+      loadChatSpecificDocuments();
     }
   }, [ragService, isInitialized, selectedDocument]);
+
+  // Load documents specific to this chat
+  const loadChatSpecificDocuments = async () => {
+    if (!ragService) return;
+    
+    try {
+      console.log('Loading chat-specific documents for chat:', currentChatId);
+      const chatDocuments = await ragService.getUserDocuments(userId, currentChatId);
+      
+      // Add chat-specific documents to sources (excluding the already selected document)
+      const newChatSources = chatDocuments.filter(doc => 
+        !selectedDocument || doc.$id !== selectedDocument.$id
+      );
+      
+      if (newChatSources.length > 0) {
+        setChatSources(prev => {
+          // Merge with existing sources, avoiding duplicates
+          const existingIds = new Set(prev.map(s => s.$id));
+          const uniqueNewSources = newChatSources.filter(doc => !existingIds.has(doc.$id));
+          return [...prev, ...uniqueNewSources];
+        });
+      }
+    } catch (error) {
+      console.error('Error loading chat-specific documents:', error);
+    }
+  };
 
   const initializeRAGService = async () => {
     try {
@@ -173,6 +205,126 @@ const ChatScreen: React.FC<Props> = ({
     setAvailableSources(prev => [...prev, source]);
   };
 
+  // Process document through RAG pipeline
+  const processDocumentThroughRAG = async (title: string, text: string, fileUri: string, rag: RAGService) => {
+    if (!rag) {
+      Alert.alert('Error', 'Document processing service not available');
+      return;
+    }
+
+    console.log('Processing document through RAG pipeline for chat:', currentChatId);
+    setProcessing(true);
+    try {
+      const result: ProcessDocumentResult = await rag.processDocument(
+        userId,
+        title,
+        text,
+        currentChatId // Link document to this specific chat
+      );
+
+      if (result.success) {
+        console.log(`Document processed successfully: ${result.chunksProcessed} chunks, ${result.totalTokensUsed} tokens used`);
+
+        // Create a document object to add to chat sources
+        const newDocument: Document = {
+          $id: result.documentId,
+          userId: userId,
+          title: title,
+          embeddingId: undefined, // This will be set internally
+          chatId: currentChatId, // Mark as chat-specific
+          createdAt: new Date(),
+        };
+
+        // Add to current chat sources
+        setChatSources(prev => [...prev, newDocument]);
+
+        Alert.alert(
+          'Success!',
+          `Document processed successfully!\n\n• ${result.chunksProcessed} text chunks created\n• ${result.totalTokensUsed} tokens used\n\nDocument has been added to this chat.`,
+          [{ text: 'OK', style: 'default' }]
+        );
+
+        // Close the modal
+        setShowAddSourceModal(false);
+      } else {
+        throw new Error(result.error || 'Failed to process document');
+      }
+    } catch (error: any) {
+      console.error('Error processing document:', error);
+
+      let errorMessage = 'Failed to process document for chat';
+      let errorTitle = 'Processing Error';
+
+      if (error.message.includes('429') || error.message.includes('Rate limit')) {
+        errorTitle = 'Rate Limit Reached';
+        errorMessage = 'VoyageAI API limit reached. Please try again in a moment.';
+      } else if (error.message.includes('401') || error.message.includes('authentication')) {
+        errorTitle = 'Authentication Error';
+        errorMessage = 'There was an issue with the AI service authentication.';
+      } else if (error.message.includes('Network error')) {
+        errorTitle = 'Connection Error';
+        errorMessage = 'Unable to connect to the AI service. Please check your internet connection.';
+      } else {
+        errorMessage = error.message || errorMessage;
+      }
+
+      Alert.alert(errorTitle, errorMessage);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle PDF upload
+  const handlePdfUpload = async () => {
+    setUploading(true);
+
+    try {
+      const result = await DocumentPicker.pickSingle({
+        type: [DocumentPicker.types.pdf]
+      });
+
+      console.log('PDF selection result:', result);
+      console.log('Starting PDF text extraction...');
+
+      const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
+      console.log('PDF extraction response:', response);
+
+      if (!response.success || !response.text) {
+        throw new Error(response.error || 'Failed to extract text from PDF');
+      }
+
+      // Process document through RAG pipeline
+      if (ragService && response.text) {
+        await processDocumentThroughRAG(
+          result?.name || 'Uploaded Document',
+          response.text,
+          result?.uri || '',
+          ragService
+        );
+      } else {
+        Alert.alert('Error', 'Chat service not available');
+      }
+    } catch (e: any) {
+      console.error('PDF upload error:', e);
+      Alert.alert('Error', e?.message || 'Failed to upload PDF');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle other upload types (coming soon)
+  const handleWebsiteUpload = () => {
+    Alert.alert('Coming Soon', 'Website upload feature will be available soon!');
+  };
+
+  const handleYoutubeUpload = () => {
+    Alert.alert('Coming Soon', 'YouTube upload feature will be available soon!');
+  };
+
+  const handleCopiedTextUpload = () => {
+    Alert.alert('Coming Soon', 'Copied text upload feature will be available soon!');
+  };
+
   const sendMessage = async () => {
     if (!inputText.trim() || !ragService || isLoading) return;
 
@@ -206,7 +358,9 @@ const ChatScreen: React.FC<Props> = ({
       const chatResponse: ChatResponse = await ragService.chatWithDocument(
         userId,
         userMessage,
-        primaryDocumentId // Use the first source as primary, but RAG should search across all user documents
+        primaryDocumentId, // Use the first source as primary
+        5, // maxSources
+        currentChatId // Search within this chat's documents
       );
 
       // Update message with response
@@ -486,36 +640,80 @@ const ChatScreen: React.FC<Props> = ({
               </View>
 
               <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                <Text style={styles.modalSubtitle}>Available Documents</Text>
-                {availableSources.length === 0 ? (
+                {/* Upload New Documents Section */}
+                <Text style={styles.modalSubtitle}>Upload New Document</Text>
+                <View style={styles.uploadOptions}>
+                  <TouchableOpacity 
+                    style={[styles.uploadOption, (uploading || processing) && styles.disabledUploadOption]} 
+                    onPress={handlePdfUpload}
+                    disabled={uploading || processing}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator size="small" color="#007AFF" />
+                    ) : (
+                      <Text style={styles.uploadOptionEmoji}>📄</Text>
+                    )}
+                    <Text style={styles.uploadOptionText}>PDF</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.uploadOption} onPress={handleWebsiteUpload}>
+                    <Text style={styles.uploadOptionEmoji}>🌐</Text>
+                    <Text style={styles.uploadOptionText}>Website</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.uploadOption} onPress={handleYoutubeUpload}>
+                    <Text style={styles.uploadOptionEmoji}>📺</Text>
+                    <Text style={styles.uploadOptionText}>YouTube</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.uploadOption} onPress={handleCopiedTextUpload}>
+                    <Text style={styles.uploadOptionEmoji}>📝</Text>
+                    <Text style={styles.uploadOptionText}>Copied text</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {processing && (
+                  <View style={styles.processingIndicator}>
+                    <ActivityIndicator size="small" color="#007AFF" />
+                    <Text style={styles.processingText}>Processing document...</Text>
+                  </View>
+                )}
+
+                {/* Existing Documents Section */}
+                {availableSources.length > 0 && (
+                  <>
+                    <Text style={styles.modalSubtitle}>Available Documents</Text>
+                    {availableSources.map((source: Document) => (
+                      <TouchableOpacity
+                        key={source.$id}
+                        style={styles.availableSourceCard}
+                        onPress={() => handleAddSourceToChat(source)}
+                      >
+                        <View style={styles.sourceIcon}>
+                          <Text style={styles.sourceEmoji}>📄</Text>
+                        </View>
+                        <View style={styles.sourceInfo}>
+                          <Text style={styles.sourceTitle} numberOfLines={2}>
+                            {source.title}
+                          </Text>
+                          <Text style={styles.sourceMeta}>
+                            {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        <View style={styles.addIcon}>
+                          <Text style={styles.addIconText}>+</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+
+                {availableSources.length === 0 && !processing && !uploading && (
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyStateText}>
-                      No additional sources available. Upload more documents from the dashboard.
+                      No additional sources available. Upload a new document above or add more documents from the dashboard.
                     </Text>
                   </View>
-                ) : (
-                  availableSources.map((source: Document) => (
-                    <TouchableOpacity
-                      key={source.$id}
-                      style={styles.availableSourceCard}
-                      onPress={() => handleAddSourceToChat(source)}
-                    >
-                      <View style={styles.sourceIcon}>
-                        <Text style={styles.sourceEmoji}>📄</Text>
-                      </View>
-                      <View style={styles.sourceInfo}>
-                        <Text style={styles.sourceTitle} numberOfLines={2}>
-                          {source.title}
-                        </Text>
-                        <Text style={styles.sourceMeta}>
-                          {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
-                        </Text>
-                      </View>
-                      <View style={styles.addIcon}>
-                        <Text style={styles.addIconText}>+</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))
                 )}
               </ScrollView>
             </View>
@@ -892,7 +1090,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
+    minHeight: '50%', // Ensure minimum height
     paddingTop: 20,
+    flex: 1, // Take available space
   },
   modalHeader: {
     flexDirection: 'row',
@@ -918,6 +1118,7 @@ const styles = StyleSheet.create({
   modalBody: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingBottom: 20, // Add bottom padding
   },
   modalSubtitle: {
     fontSize: 16,
@@ -957,6 +1158,50 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: 'white',
     fontWeight: '600',
+  },
+
+  // Upload Options Styles
+  uploadOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  uploadOption: {
+    width: '48%',
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  disabledUploadOption: {
+    opacity: 0.6,
+  },
+  uploadOptionEmoji: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
+  uploadOptionText: {
+    fontSize: 14,
+    color: 'white',
+    fontWeight: '500',
+  },
+  processingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  processingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#007AFF',
   },
 });
 

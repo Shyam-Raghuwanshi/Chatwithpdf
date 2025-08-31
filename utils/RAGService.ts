@@ -174,10 +174,11 @@ export class RAGService {
   async processDocument(
     userId: string,
     documentTitle: string,
-    textContent: string
+    textContent: string,
+    chatId?: string // Optional: associates document with specific chat
   ): Promise<ProcessDocumentResult> {
     try {
-      console.log(`Processing document: ${documentTitle}`);
+      console.log(`Processing document: ${documentTitle}${chatId ? ` (for chat: ${chatId})` : ''}`);
       
       // Ensure user profile exists before processing
       await this.appwriteDB.ensureUserProfile(userId);
@@ -235,23 +236,31 @@ export class RAGService {
           chunkIndex: chunk.chunkIndex,
           startIndex: chunk.startIndex,
           endIndex: chunk.endIndex,
+          chatId, // Include chatId in metadata for filtering
         },
       }));
 
       await this.vectorDB.storeDocumentChunks(this.COLLECTION_NAME, chunksWithEmbeddings);
 
       // Step 4: Store document metadata in Appwrite
-      const document = await this.appwriteDB.storeDocument({
+      const documentData: Omit<Document, '$id'> = {
         userId,
         title: documentTitle,
         embeddingId: documentId,
         createdAt: new Date(),
-      });
+      };
+
+      // Include chatId if provided (for chat-specific documents)
+      if (chatId) {
+        documentData.chatId = chatId;
+      }
+
+      const document = await this.appwriteDB.storeDocument(documentData);
 
       // Update token usage
       await this.appwriteDB.updateTokenUsage(userId, Math.ceil(estimatedTokens));
 
-      console.log(`Document processed successfully: ${documentId}`);
+      console.log(`Document processed successfully: ${documentId}${chatId ? ` (linked to chat: ${chatId})` : ''}`);
 
       return {
         documentId: document.$id!,
@@ -278,10 +287,11 @@ export class RAGService {
     userId: string,
     message: string,
     documentId?: string,
-    maxSources: number = 5
+    maxSources: number = 5,
+    chatId?: string // Optional: search within chat-specific documents
   ): Promise<ChatResponse> {
     try {
-      console.log(`Processing chat message for user: ${userId}`);
+      console.log(`Processing chat message for user: ${userId}${chatId ? ` (chat: ${chatId})` : ''}`);
       
       // Ensure user profile exists before processing
       await this.appwriteDB.ensureUserProfile(userId);
@@ -309,6 +319,7 @@ export class RAGService {
           if (!document || document.userId !== userId) {
             throw new Error('Document not found or unauthorized');
           }
+          // Use the embedding ID directly (no longer encoded with chat info)
           searchResults = await this.vectorDB.searchDocumentChunks(
             this.COLLECTION_NAME,
             queryEmbedding,
@@ -316,12 +327,19 @@ export class RAGService {
             maxSources
           );
         } else {
-          // Search across all user's documents
+          // Search across user's documents with optional chat filtering
+          const searchFilters: Record<string, any> = { userId };
+          
+          // If chatId is provided, search only within that chat's documents
+          if (chatId) {
+            searchFilters.chatId = chatId;
+          }
+
           searchResults = await this.vectorDB.searchSimilarChunks(
             this.COLLECTION_NAME,
             queryEmbedding,
             maxSources,
-            { userId }
+            searchFilters
           );
         }
 
@@ -359,7 +377,8 @@ export class RAGService {
             userId,
             message,
             documentId,
-            estimatedTokens
+            estimatedTokens,
+            chatId
           );
           
           console.log('✅ Successfully used Perplexity fallback for chat');
@@ -392,8 +411,8 @@ export class RAGService {
   /**
    * Get user's documents
    */
-  async getUserDocuments(userId: string): Promise<Document[]> {
-    return this.appwriteDB.getUserDocuments(userId);
+  async getUserDocuments(userId: string, chatId?: string): Promise<Document[]> {
+    return this.appwriteDB.getUserDocuments(userId, 50, chatId);
   }
 
   /**
@@ -477,7 +496,8 @@ export class RAGService {
     userId: string,
     message: string,
     documentId?: string,
-    estimatedTokens: number = 0
+    estimatedTokens: number = 0,
+    chatId?: string
   ): Promise<ChatResponse> {
     try {
       let documentContent = "";
@@ -494,12 +514,12 @@ export class RAGService {
           // we'll use the document metadata and let Perplexity work with the question
         }
       } else {
-        // Get all user documents
-        const userDocuments = await this.appwriteDB.getUserDocuments(userId);
+        // Get user documents (chat-specific if chatId provided)
+        const userDocuments = await this.appwriteDB.getUserDocuments(userId, 50, chatId);
         documentContent = userDocuments
           .map(doc => `Document: ${doc.title}\nCreated: ${doc.createdAt.toLocaleDateString()}\n`)
           .join('\n');
-        documentTitle = `${userDocuments.length} Documents`;
+        documentTitle = `${userDocuments.length} Documents${chatId ? ' (Chat-specific)' : ''}`;
       }
 
       // Get recent chat history for context
