@@ -34,9 +34,10 @@ interface Props {
   userId: string;
   selectedDocument?: Document;
   onBack: () => void;
+  existingRAGService?: RAGService; // Allow passing an already initialized service
 }
 
-const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
+const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack, existingRAGService }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -59,13 +60,32 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
   const initializeRAGService = async () => {
     try {
       setIsLoading(true);
+      
+      // Use existing service if provided (avoids re-initialization and rate limits)
+      if (existingRAGService) {
+        console.log('Using existing RAG service to avoid rate limits');
+        setRagService(existingRAGService);
+        setIsInitialized(true);
+        return;
+      }
+
+      // Only create new service if none provided
+      console.log('Creating new RAG service...');
       const rag = new RAGService(defaultConfig);
-      await rag.initialize();
+      // Initialize without forced connection test to avoid rate limits
+      await rag.initialize(false);
       setRagService(rag);
       setIsInitialized(true);
     } catch (error) {
       console.error('Error initializing RAG service:', error);
-      Alert.alert('Error', 'Failed to initialize chat service. Please try again.');
+      Alert.alert(
+        'Initialization Error', 
+        'Failed to initialize chat service. This might be due to rate limiting. Please wait a moment and try again.',
+        [
+          { text: 'OK', style: 'default' },
+          { text: 'Retry', style: 'default', onPress: () => setTimeout(initializeRAGService, 5000) }
+        ]
+      );
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +167,7 @@ const ChatScreen: React.FC<Props> = ({ userId, selectedDocument, onBack }) => {
           msg.id === messageId
             ? {
               ...msg,
-              response: `Error: ${error.message || 'Failed to get response'}`,
+              response: `Error: ${error?.message || String(error) || 'Failed to get response'}`,
               isLoading: false,
             }
             : msg

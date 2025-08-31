@@ -21,6 +21,13 @@ export interface AppConfig {
             model?: string;
             apiUrl?: string;
             timeout?: number;
+            usageTier?: 1 | 2 | 3; // VoyageAI usage tier for dynamic rate limiting
+      };
+      perplexity: {
+            apiKey?: string;
+            model?: string;
+            apiUrl?: string;
+            timeout?: number;
       };
       chunking: {
             chunkSize: number;
@@ -48,6 +55,15 @@ export const defaultConfig: AppConfig = {
             model: 'voyage-large-2',
             apiUrl: 'https://api.voyageai.com/v1/embeddings',
             timeout: 45000, // 45 seconds timeout for embedding requests
+            usageTier: 1, // Start with Tier 1 - upgrade as needed
+      },
+      perplexity: {
+            // Add your Perplexity API key here for better chat responses
+            // Get one at: https://docs.perplexity.ai/docs/getting-started
+            apiKey: "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", // Replace with actual key or set EXPO_PUBLIC_PERPLEXITY_API_KEY
+            model: 'sonar-pro',
+            apiUrl: 'https://api.perplexity.ai/chat/completions',
+            timeout: 30000,
       },
       chunking: {
             // Chunk size in tokens (approximately) - increased to reduce API calls

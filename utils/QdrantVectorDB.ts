@@ -104,12 +104,67 @@ export class QdrantVectorDB {
         );
         
         console.log(`Collection ${collectionName} created successfully`);
+        
+        // Create indexes for fields we'll filter by
+        await this.createIndexes(collectionName);
       } else {
         console.log(`Collection ${collectionName} already exists`);
+        
+        // Ensure indexes exist even for existing collections
+        try {
+          await this.createIndexes(collectionName);
+        } catch (indexError) {
+          console.warn('Some indexes may already exist:', indexError);
+        }
       }
     } catch (error) {
       console.error('Error initializing collection:', error);
       throw new Error(`Failed to initialize collection ${collectionName}: ${error}`);
+    }
+  }
+
+  /**
+   * Create necessary indexes for filtering
+   */
+  private async createIndexes(collectionName: string): Promise<void> {
+    try {
+      console.log(`Creating indexes for collection: ${collectionName}`);
+      
+      // Create index for documentId (used for filtering by document)
+      await this.makeRequest(
+        `/collections/${collectionName}/index`,
+        'PUT',
+        {
+          field_name: 'documentId',
+          field_schema: 'keyword'
+        }
+      );
+      
+      // Create index for userId (used for filtering by user)
+      await this.makeRequest(
+        `/collections/${collectionName}/index`,
+        'PUT',
+        {
+          field_name: 'userId',
+          field_schema: 'keyword'
+        }
+      );
+
+      // Create index for documentTitle (might be useful for search)
+      await this.makeRequest(
+        `/collections/${collectionName}/index`,
+        'PUT',
+        {
+          field_name: 'documentTitle',
+          field_schema: 'keyword'
+        }
+      );
+
+      console.log(`Indexes created successfully for ${collectionName}`);
+    } catch (error) {
+      console.error('Error creating indexes:', error);
+      // Don't throw here as indexes might already exist
+      console.warn('Some indexes may already exist, continuing...');
     }
   }
 
@@ -168,12 +223,14 @@ export class QdrantVectorDB {
         with_payload: true,
       };
 
-      if (filters) {
+      if (filters && Object.keys(filters).length > 0) {
+        const mustConditions = Object.entries(filters).map(([key, value]) => ({
+          key,
+          match: { value }
+        }));
+
         searchBody.filter = {
-          must: Object.entries(filters).map(([key, value]) => ({
-            key,
-            match: { value },
-          })),
+          must: mustConditions
         };
       }
 
@@ -203,12 +260,41 @@ export class QdrantVectorDB {
     documentId: string,
     limit: number = 5
   ): Promise<SearchResult[]> {
-    return this.searchSimilarChunks(
-      collectionName,
-      queryEmbedding,
-      limit,
-      { documentId }
-    );
+    try {
+      console.log(`Searching for chunks in document: ${documentId}`);
+      
+      const searchBody = {
+        vector: queryEmbedding,
+        limit,
+        with_payload: true,
+        filter: {
+          must: [
+            {
+              key: 'documentId',
+              match: { value: documentId }
+            }
+          ]
+        }
+      };
+
+      const response = await this.makeRequest(
+        `/collections/${collectionName}/points/search`,
+        'POST',
+        searchBody
+      );
+
+      const results = response.result?.map((point: any) => ({
+        id: point.id,
+        score: point.score || 0,
+        payload: point.payload || {},
+      })) || [];
+
+      console.log(`Found ${results.length} chunks for document ${documentId}`);
+      return results;
+    } catch (error) {
+      console.error('Error searching document chunks:', error);
+      throw new Error(`Failed to search document chunks: ${error}`);
+    }
   }
 
   /**

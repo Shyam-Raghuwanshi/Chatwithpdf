@@ -33,7 +33,14 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
 
   // Load user documents
   useEffect(() => {
-    if (ragService) {
+    if (!ragService) {
+      // Initialize RAG service when component mounts
+      initializeRAGService().then(service => {
+        if (service) {
+          setRagService(service);
+        }
+      });
+    } else {
       loadUserDocuments();
     }
   }, [ragService]);
@@ -112,6 +119,8 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       console.log(ragService, response.text, "------------")
       if (ragService && response.text) {
         console.log("inside if ----------")
+        // Set the ragService state so it can be reused for chat
+        setRagService(ragService);
         await processDocumentThroughRAG(result?.name || 'Uploaded Document', response.text, result?.uri || '', ragService);
       }
     } catch (e: any) {
@@ -172,7 +181,11 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       
       if (error.message.includes('429') || error.message.includes('Rate limit')) {
         errorTitle = 'Rate Limit Reached';
-        errorMessage = 'The AI service is currently busy. Please wait a few minutes and try again. This helps ensure fair usage for all users.';
+        errorMessage = 'VoyageAI API limit reached. Current limits:\n\n' +
+          '• Tier 1: 2,000 requests/minute\n' +
+          '• Tier 2: 4,000 requests/minute ($100+ spent)\n' +
+          '• Tier 3: 6,000 requests/minute ($1000+ spent)\n\n' +
+          'The app will retry automatically. For production use, consider upgrading your VoyageAI tier.';
       } else if (error.message.includes('401') || error.message.includes('authentication')) {
         errorTitle = 'Authentication Error';
         errorMessage = 'There was an issue with the AI service authentication. Please check your configuration.';
@@ -196,7 +209,16 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
     setProcessedDocument(null);
   };
 
-  const handleChatWithDocument = (document: Document) => {
+  const handleChatWithDocument = async (document: Document) => {
+    // Ensure we have a RAG service initialized
+    if (!ragService) {
+      console.log('Initializing RAG service for chat...');
+      const service = await initializeRAGService();
+      if (service) {
+        setRagService(service);
+      }
+    }
+    
     setProcessedDocument(document);
     setShowChat(true);
   };
@@ -207,6 +229,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
         userId={userId}
         selectedDocument={processedDocument || undefined}
         onBack={() => setShowChat(false)}
+        existingRAGService={ragService || undefined}
       />
     );
   }
@@ -383,6 +406,32 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
             • Qdrant vector database for fast similarity search{'\n'}
             • Persistent chat history stored in Appwrite{'\n'}
             • AI-powered document Q&A with source citations
+          </Text>
+        </View>
+
+        {/* Performance Info */}
+        <View style={styles.featuresInfo}>
+          <Text style={styles.featuresTitle}>🚀 Performance Optimizations</Text>
+          <Text style={styles.featuresText}>
+            • Smart rate limiting: Up to 1,800 requests/minute (VoyageAI Tier 1){'\n'}
+            • Batch processing: 128 texts per request for efficiency{'\n'}
+            • Automatic retry with exponential backoff{'\n'}
+            • Tier-based limits: Upgrade to Tier 2 ($100+) for 4,000 RPM{'\n'}
+            • Tier 3 ($1000+) provides 6,000 RPM for production apps{'\n'}
+            • Perplexity AI fallback for intelligent chat responses
+          </Text>
+        </View>
+
+        {/* AI Integration Info */}
+        <View style={styles.featuresInfo}>
+          <Text style={styles.featuresTitle}>🤖 AI Integration</Text>
+          <Text style={styles.featuresText}>
+            • Vector embeddings for semantic document search{'\n'}
+            • Perplexity AI for intelligent chat responses{'\n'}
+            • Automatic fallback when rate limits are hit{'\n'}
+            • Context-aware answers based on your documents{'\n'}
+            • To enable Perplexity: Add EXPO_PUBLIC_PERPLEXITY_API_KEY{'\n'}
+            • Get your key at docs.perplexity.ai
           </Text>
         </View>
       </ScrollView>

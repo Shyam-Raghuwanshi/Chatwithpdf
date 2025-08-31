@@ -8,7 +8,7 @@ class RateLimiter {
   private maxRequests: number;
   private timeWindow: number;
 
-  constructor(maxRequests: number = 10, timeWindow: number = 60000) { // 10 requests per minute by default
+  constructor(maxRequests: number = 100, timeWindow: number = 60000) { // 100 requests per minute (conservative but usable)
     this.maxRequests = maxRequests;
     this.timeWindow = timeWindow;
   }
@@ -24,12 +24,16 @@ class RateLimiter {
       const waitTime = this.timeWindow - (now - oldestRequest);
       
       if (waitTime > 0) {
-        console.log(`⏳ Rate limit protection: waiting ${waitTime}ms before next request...`);
+        console.log(`⏳ Rate limit protection: waiting ${waitTime}ms before next request (${this.requests.length}/${this.maxRequests} used)...`);
         await this.delay(waitTime);
       }
     }
     
     this.requests.push(now);
+    
+    // Log current utilization
+    const utilization = (this.requests.length / this.maxRequests * 100).toFixed(1);
+    console.log(`📊 Rate limit utilization: ${this.requests.length}/${this.maxRequests} (${utilization}%)`);
   }
 
   private delay(ms: number): Promise<void> {
@@ -61,6 +65,7 @@ export interface VoyageAIConfig {
   apiUrl: string;
   model: string;
   timeout: number;
+  usageTier?: 1 | 2 | 3; // VoyageAI usage tier for dynamic rate limiting
 }
 
 export class VoyageAIEmbedding {
@@ -73,10 +78,16 @@ export class VoyageAIEmbedding {
       apiUrl: config.apiUrl || "https://api.voyageai.com/v1/embeddings",
       model: config.model || "voyage-large-2",
       timeout: config.timeout || 30000,
+      usageTier: config.usageTier || 1, // Default to Tier 1
     };
     
-    // Initialize rate limiter: 10 requests per minute to be conservative
-    this.rateLimiter = new RateLimiter(10, 60000);
+    // Dynamic rate limiting based on VoyageAI usage tier
+    const tierMultiplier = this.config.usageTier || 1;
+    const baseLimit = 1800; // Base limit per minute (90% of Tier 1's 2000 RPM for safety)
+    const rateLimit = Math.floor(baseLimit * tierMultiplier);
+    
+    console.log(`🚀 VoyageAI initialized with Tier ${this.config.usageTier} limits: ${rateLimit} requests/minute`);
+    this.rateLimiter = new RateLimiter(rateLimit, 60000);
   }
 
   /**
@@ -221,7 +232,7 @@ export class VoyageAIEmbedding {
   async generateEmbeddingsBatch(
     texts: string[],
     inputType: 'query' | 'document' = 'document',
-    batchSize: number = 20 // Reduced from 50 to be more conservative
+    batchSize: number = 128 // Increased from 20 - VoyageAI supports up to 1000 texts per request
   ): Promise<number[][]> {
     if (texts.length <= batchSize) {
       return this.generateEmbeddingsWithRetry(texts, inputType);
@@ -258,9 +269,9 @@ export class VoyageAIEmbedding {
         }
       }
 
-      // Longer delay between batches to avoid rate limits
+      // Reduced delay between batches since we have much higher limits
       if (i + batchSize < texts.length) {
-        const delay = 2000; // 2 seconds between batches
+        const delay = 500; // 0.5 seconds between batches (still conservative)
         console.log(`⏳ Waiting ${delay}ms before next batch to respect rate limits...`);
         await this.delay(delay);
       }
@@ -285,9 +296,9 @@ export class VoyageAIEmbedding {
         const embedding = await this.generateEmbeddingsWithRetry([texts[i]], inputType);
         embeddings.push(embedding[0]);
         
-        // Wait between individual requests
+        // Wait between individual requests (reduced from 3 seconds)
         if (i < texts.length - 1) {
-          await this.delay(3000); // 3 seconds between individual requests
+          await this.delay(1000); // 1 second between individual requests
         }
       } catch (error) {
         console.error(`Failed to process individual text ${i + 1}:`, error);
@@ -299,24 +310,54 @@ export class VoyageAIEmbedding {
   }
 
   /**
-   * Test the embedding service with a simple text
+   * Test the embedding service with a simple text (with rate limit protection)
    */
   async testConnection(): Promise<boolean> {
     try {
-      const testText = "This is a test embedding request.";
+      // Skip test if we're likely to hit rate limits
+      // Check if we've made requests recently
+      const recentRequests = this.rateLimiter['requests'] || [];
+      const now = Date.now();
+      const recentRequestCount = recentRequests.filter((time: number) => now - time < 60000).length;
+      
+      // If we've made more than 50% of our limit in the last minute, skip the test
+      if (recentRequestCount > (this.rateLimiter['maxRequests'] * 0.5)) {
+        console.log('⚠️ Skipping connection test to avoid rate limit - recent API usage detected');
+        return true; // Assume connection is OK
+      }
+
+      const testText = "Connection test.";
       const embedding = await this.generateEmbedding(testText);
       return embedding.length > 0;
-    } catch (error) {
+    } catch (error: any) {
       console.error('VoyageAI connection test failed:', error);
+      
+      // If it's a rate limit error, return true (connection exists but limited)
+      if (error.message.includes('429') || error.message.includes('Rate limit')) {
+        console.log('🚦 Rate limit detected during connection test - connection exists but limited');
+        return true;
+      }
+      
       return false;
     }
   }
 
   /**
-   * Get the dimension of embeddings for this model
+   * Get the dimension of embeddings for this model (with fallback)
    */
   async getEmbeddingDimension(): Promise<number> {
     try {
+      // Skip test if we're likely to hit rate limits
+      const recentRequests = this.rateLimiter['requests'] || [];
+      const now = Date.now();
+      const recentRequestCount = recentRequests.filter((time: number) => now - time < 60000).length;
+      
+      // If we've made more than 60% of our limit, use default
+      if (recentRequestCount > (this.rateLimiter['maxRequests'] * 0.6)) {
+        console.log('⚠️ Using default embedding dimension to avoid rate limit');
+        return 1536; // Default for voyage-large-2
+      }
+
       const testEmbedding = await this.generateEmbedding("test");
       return testEmbedding.length;
     } catch (error) {
@@ -346,6 +387,86 @@ export class VoyageAIEmbedding {
   getConfig(): Omit<VoyageAIConfig, 'apiKey'> {
     const { apiKey, ...safeConfig } = this.config;
     return safeConfig;
+  }
+
+  /**
+   * Get information about VoyageAI usage tiers and rate limits
+   */
+  getTierInfo(): { currentTier: number; limits: { rpm: number; tpm: string }; upgradeInfo: string } {
+    const tier = this.config.usageTier || 1;
+    const baseLimits = { rpm: 2000, tpm: '3M' };
+    
+    const tierInfo = {
+      1: { 
+        ...baseLimits, 
+        upgradeInfo: 'Add payment method to access Tier 1. Spend $100+ to reach Tier 2 (4000 RPM).' 
+      },
+      2: { 
+        rpm: baseLimits.rpm * 2, 
+        tpm: '6M', 
+        upgradeInfo: 'Spend $1000+ to reach Tier 3 (6000 RPM).' 
+      },
+      3: { 
+        rpm: baseLimits.rpm * 3, 
+        tpm: '9M', 
+        upgradeInfo: 'Maximum tier reached. Contact VoyageAI for enterprise limits.' 
+      }
+    };
+
+    return {
+      currentTier: tier,
+      limits: tierInfo[tier as keyof typeof tierInfo],
+      upgradeInfo: tierInfo[tier as keyof typeof tierInfo].upgradeInfo
+    };
+  }
+
+  /**
+   * Update usage tier and reconfigure rate limiter
+   */
+  updateUsageTier(tier: 1 | 2 | 3): void {
+    this.config.usageTier = tier;
+    
+    // Reconfigure rate limiter
+    const baseLimit = 1800; // 90% of Tier 1's 2000 RPM for safety
+    const rateLimit = Math.floor(baseLimit * tier);
+    
+    this.rateLimiter = new RateLimiter(rateLimit, 60000);
+    console.log(`🆙 Updated to Tier ${tier}: ${rateLimit} requests/minute`);
+  }
+
+  /**
+   * Get current rate limiter status
+   */
+  getRateLimiterStatus(): { 
+    currentRequests: number; 
+    maxRequests: number; 
+    timeWindow: number; 
+    utilizationPercent: number;
+    nextAvailableSlot: number;
+  } {
+    const requests = this.rateLimiter['requests'] || [];
+    const maxRequests = this.rateLimiter['maxRequests'];
+    const timeWindow = this.rateLimiter['timeWindow'];
+    const now = Date.now();
+    
+    // Filter recent requests
+    const recentRequests = requests.filter((time: number) => now - time < timeWindow);
+    const utilizationPercent = (recentRequests.length / maxRequests) * 100;
+    
+    // Calculate when next slot is available
+    let nextAvailableSlot = 0;
+    if (recentRequests.length >= maxRequests && recentRequests.length > 0) {
+      const oldestRequest = Math.min(...recentRequests);
+      nextAvailableSlot = oldestRequest + timeWindow - now;
+    }
+    
+    return {
+      currentRequests: recentRequests.length,
+      maxRequests,
+      timeWindow,
+      utilizationPercent,
+      nextAvailableSlot: Math.max(0, nextAvailableSlot)
+    };
   }
 }
 

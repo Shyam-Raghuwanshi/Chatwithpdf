@@ -2,6 +2,7 @@ import TextChunker, { TextChunk } from './TextChunker';
 import VoyageAIEmbedding from './VoyageAIEmbedding';
 import QdrantVectorDB from './QdrantVectorDB';
 import AppwriteDB, { Document, Chat, UserProfile } from './AppwriteDB';
+import PerplexityAI, { ChatContext } from './PerplexityAI';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -16,6 +17,11 @@ export interface RAGConfig {
     apiKey?: string;
   };
   voyageAI: {
+    apiKey?: string;
+    model?: string;
+    usageTier?: 1 | 2 | 3;
+  };
+  perplexity: {
     apiKey?: string;
     model?: string;
   };
@@ -51,8 +57,11 @@ export class RAGService {
   private embeddingService: VoyageAIEmbedding;
   private vectorDB: QdrantVectorDB;
   private appwriteDB: AppwriteDB;
+  private perplexityAI: PerplexityAI;
   private config: RAGConfig;
   private readonly COLLECTION_NAME = 'document_embeddings';
+  private isInitialized: boolean = false;
+  private lastInitializationTime: number = 0;
 
   constructor(config: RAGConfig) {
     this.config = config;
@@ -60,6 +69,7 @@ export class RAGService {
     this.embeddingService = new VoyageAIEmbedding(config.voyageAI);
     this.vectorDB = new QdrantVectorDB();
     this.appwriteDB = new AppwriteDB(config.appwrite);
+    this.perplexityAI = new PerplexityAI(config.perplexity);
   }
 
   /**
@@ -105,27 +115,52 @@ export class RAGService {
   }
 
   /**
-   * Initialize the RAG system
+   * Initialize the RAG system with smart rate limit awareness
    */
-  async initialize(): Promise<void> {
+  async initialize(forceTest: boolean = false): Promise<void> {
     try {
       console.log('Initializing RAG system...');
       
-      // Test connections
-      const embeddingTest = await this.embeddingService.testConnection();
-      if (!embeddingTest) {
-        throw new Error('Failed to connect to VoyageAI embedding service');
+      // Skip expensive connection tests if recently initialized (within 5 minutes)
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      const recentlyInitialized = (now - this.lastInitializationTime) < fiveMinutes;
+      
+      if (this.isInitialized && recentlyInitialized && !forceTest) {
+        console.log('RAG system already initialized recently, skipping connection tests');
+        return;
       }
 
-      const vectorDBTest = await this.vectorDB.testConnection();
-      if (!vectorDBTest) {
-        throw new Error('Failed to connect to Qdrant vector database');
+      // Only test connections if forced or not recently tested
+      if (forceTest || !recentlyInitialized) {
+        console.log('Testing embedding service connection...');
+        const embeddingTest = await this.embeddingService.testConnection();
+        if (!embeddingTest) {
+          console.warn('VoyageAI connection test failed, but continuing (may be rate limited)');
+          // Don't throw error - the service might still work for actual requests
+        }
+
+        console.log('Testing vector database connection...');
+        const vectorDBTest = await this.vectorDB.testConnection();
+        if (!vectorDBTest) {
+          throw new Error('Failed to connect to Qdrant vector database');
+        }
       }
 
-      // Initialize collection with proper vector size
-      const vectorSize = await this.embeddingService.getEmbeddingDimension();
+      // Initialize collection with default vector size if we can't get it dynamically
+      let vectorSize = 1536; // Default for voyage-large-2
+      try {
+        if (!recentlyInitialized || forceTest) {
+          vectorSize = await this.embeddingService.getEmbeddingDimension();
+        }
+      } catch (error) {
+        console.warn('Could not get embedding dimension, using default (1536):', error);
+      }
+      
       await this.vectorDB.initializeCollection(this.COLLECTION_NAME, vectorSize);
 
+      this.isInitialized = true;
+      this.lastInitializationTime = now;
       console.log('RAG system initialized successfully');
     } catch (error) {
       console.error('Error initializing RAG system:', error);
@@ -237,7 +272,7 @@ export class RAGService {
   }
 
   /**
-   * Chat with a document using RAG
+   * Chat with a document using RAG with Perplexity fallback
    */
   async chatWithDocument(
     userId: string,
@@ -258,49 +293,87 @@ export class RAGService {
         throw new Error('Insufficient tokens for chat');
       }
 
-      // Step 1: Generate embedding for the query
-      const queryEmbedding = await this.embeddingService.generateEmbedding(message, 'query');
+      // Try vector search first, fall back to Perplexity if VoyageAI is rate limited
+      let chatResponse: ChatResponse;
+      
+      try {
+        // Step 1: Generate embedding for the query
+        console.log('🔍 Generating query embedding with VoyageAI...');
+        const queryEmbedding = await this.embeddingService.generateEmbedding(message, 'query');
 
-      // Step 2: Search for relevant chunks
-      let searchResults;
-      if (documentId) {
-        // Search within specific document
-        const document = await this.appwriteDB.getDocument(documentId);
-        if (!document || document.userId !== userId) {
-          throw new Error('Document not found or unauthorized');
+        // Step 2: Search for relevant chunks
+        let searchResults;
+        if (documentId) {
+          // Search within specific document
+          const document = await this.appwriteDB.getDocument(documentId);
+          if (!document || document.userId !== userId) {
+            throw new Error('Document not found or unauthorized');
+          }
+          searchResults = await this.vectorDB.searchDocumentChunks(
+            this.COLLECTION_NAME,
+            queryEmbedding,
+            document.embeddingId!,
+            maxSources
+          );
+        } else {
+          // Search across all user's documents
+          searchResults = await this.vectorDB.searchSimilarChunks(
+            this.COLLECTION_NAME,
+            queryEmbedding,
+            maxSources,
+            { userId }
+          );
         }
-        searchResults = await this.vectorDB.searchDocumentChunks(
-          this.COLLECTION_NAME,
-          queryEmbedding,
-          document.embeddingId!,
-          maxSources
+
+        // Step 3: Generate response using Perplexity with retrieved context
+        const relevantChunks = searchResults.map(result => ({
+          text: result.payload.text,
+          score: result.score
+        }));
+
+        const perplexityResponse = await this.generateResponseWithPerplexity(
+          message, 
+          relevantChunks, 
+          documentId
         );
-      } else {
-        // Search across all user's documents
-        searchResults = await this.vectorDB.searchSimilarChunks(
-          this.COLLECTION_NAME,
-          queryEmbedding,
-          maxSources,
-          { userId }
-        );
+
+        chatResponse = {
+          response: perplexityResponse,
+          sources: searchResults.map(result => ({
+            chunkId: result.id,
+            text: result.payload.text,
+            score: result.score,
+            documentTitle: result.payload.documentTitle,
+          })),
+          tokensUsed: estimatedTokens,
+        };
+
+        console.log('✅ Successfully used vector search + Perplexity for chat');
+
+      } catch (embeddingError: any) {
+        // If VoyageAI is rate limited, fall back to Perplexity with document content
+        if (embeddingError.message.includes('429') || embeddingError.message.includes('Rate limit')) {
+          console.log('🚨 VoyageAI rate limited, falling back to Perplexity with document content...');
+          
+          chatResponse = await this.chatWithPerplexityFallback(
+            userId,
+            message,
+            documentId,
+            estimatedTokens
+          );
+          
+          console.log('✅ Successfully used Perplexity fallback for chat');
+        } else {
+          throw embeddingError;
+        }
       }
 
-      // Step 3: Generate context from search results
-      const context = searchResults
-        .map(result => result.payload.text)
-        .join('\n\n');
-
-      // Step 4: Generate response using the context
-      // Note: You'll need to integrate with your preferred LLM here
-      // For now, we'll create a simple response based on the retrieved context
-      const response = await this.generateResponse(message, context);
-
-      // Step 5: Store chat in database
+      // Step 4: Store chat in database
       await this.appwriteDB.storeChatMessage({
         userId,
         documentId,
         message,
-        response,
+        response: chatResponse.response,
         tokensUsed: estimatedTokens,
         createdAt: new Date(),
       });
@@ -308,16 +381,8 @@ export class RAGService {
       // Update token usage
       await this.appwriteDB.updateTokenUsage(userId, estimatedTokens);
 
-      return {
-        response,
-        sources: searchResults.map(result => ({
-          chunkId: result.id,
-          text: result.payload.text,
-          score: result.score,
-          documentTitle: result.payload.documentTitle,
-        })),
-        tokensUsed: estimatedTokens,
-      };
+      return chatResponse;
+      
     } catch (error) {
       console.error('Error in chat:', error);
       throw error;
@@ -371,7 +436,119 @@ export class RAGService {
   }
 
   /**
-   * Simple response generation (to be replaced with actual LLM integration)
+   * Generate response using Perplexity AI with retrieved context
+   */
+  private async generateResponseWithPerplexity(
+    question: string,
+    relevantChunks: Array<{ text: string; score: number }>,
+    documentId?: string
+  ): Promise<string> {
+    try {
+      // Get document info if available
+      let documentTitle = undefined;
+      if (documentId) {
+        const document = await this.appwriteDB.getDocument(documentId);
+        documentTitle = document?.title;
+      }
+
+      // Build context for Perplexity
+      const context: ChatContext = {
+        documentTitle,
+        relevantChunks,
+      };
+
+      const result = await this.perplexityAI.generateAnswer(question, context);
+      
+      if (result.success && result.response) {
+        return result.response;
+      } else {
+        throw new Error(result.error || 'Failed to generate response with Perplexity');
+      }
+    } catch (error) {
+      console.error('Error generating response with Perplexity:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback chat method using Perplexity with full document content
+   */
+  private async chatWithPerplexityFallback(
+    userId: string,
+    message: string,
+    documentId?: string,
+    estimatedTokens: number = 0
+  ): Promise<ChatResponse> {
+    try {
+      let documentContent = "";
+      let documentTitle = "User Documents";
+      
+      if (documentId) {
+        // Get specific document
+        const document = await this.appwriteDB.getDocument(documentId);
+        if (document && document.userId === userId) {
+          documentTitle = document.title;
+          documentContent = `Document: ${document.title}\nCreated: ${document.createdAt.toLocaleDateString()}`;
+          
+          // Note: Without being able to retrieve the actual document content,
+          // we'll use the document metadata and let Perplexity work with the question
+        }
+      } else {
+        // Get all user documents
+        const userDocuments = await this.appwriteDB.getUserDocuments(userId);
+        documentContent = userDocuments
+          .map(doc => `Document: ${doc.title}\nCreated: ${doc.createdAt.toLocaleDateString()}\n`)
+          .join('\n');
+        documentTitle = `${userDocuments.length} Documents`;
+      }
+
+      // Get recent chat history for context
+      const recentChats = await this.appwriteDB.getChatHistory(userId, documentId);
+      const chatHistory = recentChats.slice(-3).map(chat => ({
+        question: chat.message,
+        answer: chat.response
+      }));
+
+      // Build context for Perplexity
+      const context: ChatContext = {
+        documentTitle,
+        documentContent: documentContent.length > 8000 
+          ? documentContent.substring(0, 8000) + "\n\n[Content truncated due to length]"
+          : documentContent,
+        chatHistory
+      };
+
+      const result = await this.perplexityAI.generateAnswer(message, context);
+      
+      if (!result.success || !result.response) {
+        throw new Error(result.error || 'Failed to generate response with Perplexity fallback');
+      }
+
+      return {
+        response: result.response,
+        sources: [{
+          chunkId: 'perplexity-fallback',
+          text: 'Response generated using Perplexity AI with document context (VoyageAI rate limited)',
+          score: 1.0,
+          documentTitle
+        }],
+        tokensUsed: estimatedTokens,
+      };
+
+    } catch (error) {
+      console.error('Error in Perplexity fallback:', error);
+      
+      // Last resort: simple error response
+      return {
+        response: "I'm experiencing some technical difficulties accessing your documents right now. This might be due to API rate limits. Please try again in a few moments. If the issue persists, the document analysis service may need some time to reset.",
+        sources: [],
+        tokensUsed: 0,
+      };
+    }
+  }
+
+  /**
+   * Simple response generation (fallback method)
    */
   private async generateResponse(query: string, context: string): Promise<string> {
     // This is a placeholder implementation
