@@ -486,20 +486,31 @@ export class AppwriteDB {
    */
   async updateTokenUsage(userId: string, tokensUsed: number): Promise<void> {
     try {
-      const profile = await this.getUserProfile(userId);
+      let profile = await this.getUserProfile(userId);
+      
+      // If profile doesn't exist, create it with default values
       if (!profile) {
-        throw new Error('User profile not found');
+        console.log(`User profile not found for ${userId}, creating new profile...`);
+        profile = await this.createOrUpdateUserProfile(userId, {
+          plan: 'free',
+          tokensUsed: 0,
+          tokensLimit: 400000,
+        });
       }
 
+      const newTokenUsage = profile.tokensUsed + tokensUsed;
+      
       await this.tablesDB.updateRow(
         this.config.databaseId,
         this.COLLECTIONS.USER_PROFILES,
         profile.$id!,
         {
-          tokensUsed: profile.tokensUsed + tokensUsed,
+          tokensUsed: newTokenUsage,
           updatedAt: new Date().toISOString(),
         }
       );
+      
+      console.log(`Updated token usage for user ${userId}: ${profile.tokensUsed} + ${tokensUsed} = ${newTokenUsage}`);
     } catch (error) {
       console.error('Error updating token usage:', error);
       throw new Error(`Failed to update token usage: ${error}`);
@@ -511,15 +522,26 @@ export class AppwriteDB {
    */
   async checkTokenLimit(userId: string, requiredTokens: number): Promise<boolean> {
     try {
-      const profile = await this.getUserProfile(userId);
+      let profile = await this.getUserProfile(userId);
+      
+      // If profile doesn't exist, create it with default values
       if (!profile) {
-        return false;
+        console.log(`User profile not found for ${userId} during token check, creating new profile...`);
+        profile = await this.createOrUpdateUserProfile(userId, {
+          plan: 'free',
+          tokensUsed: 0,
+          tokensLimit: 400000,
+        });
       }
-      console.log(profile, "profile")
-      return (profile.tokensUsed + requiredTokens) <= profile.tokensLimit;
+      
+      const hasEnoughTokens = (profile.tokensUsed + requiredTokens) <= profile.tokensLimit;
+      console.log(`Token check for user ${userId}: ${profile.tokensUsed} + ${requiredTokens} <= ${profile.tokensLimit} = ${hasEnoughTokens}`);
+      
+      return hasEnoughTokens;
     } catch (error) {
       console.error('Error checking token limit:', error);
-      return false;
+      // Return true by default to not block users due to errors
+      return true;
     }
   }
 
@@ -595,6 +617,53 @@ export class AppwriteDB {
     return {
       ...doc,
     };
+  }
+
+  /**
+   * Ensure user profile exists, create if not
+   */
+  async ensureUserProfile(userId: string): Promise<UserProfile> {
+    try {
+      let profile = await this.getUserProfile(userId);
+      
+      if (!profile) {
+        console.log(`Creating new user profile for user: ${userId}`);
+        
+        try {
+          profile = await this.createOrUpdateUserProfile(userId, {
+            plan: 'free',
+            tokensUsed: 0,
+            tokensLimit: 400000,
+          });
+          console.log(`✅ Successfully created user profile for: ${userId}`);
+        } catch (createError) {
+          console.error('Failed to create user profile, attempting simple creation:', createError);
+          
+          // Fallback: try creating with minimal data
+          const newRow = await this.tablesDB.createRow(
+            this.config.databaseId,
+            this.COLLECTIONS.USER_PROFILES,
+            ID.unique(),
+            {
+              userId,
+              plan: 'free',
+              tokensUsed: 0,
+              tokensLimit: 400000,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          );
+          
+          profile = this.transformUserProfile(newRow);
+          console.log(`✅ Successfully created user profile with fallback method for: ${userId}`);
+        }
+      }
+      
+      return profile;
+    } catch (error) {
+      console.error('Error ensuring user profile exists:', error);
+      throw new Error(`Failed to ensure user profile: ${error}`);
+    }
   }
 
   /**

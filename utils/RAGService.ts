@@ -1,7 +1,7 @@
 import TextChunker, { TextChunk } from './TextChunker';
 import VoyageAIEmbedding from './VoyageAIEmbedding';
 import QdrantVectorDB from './QdrantVectorDB';
-import AppwriteDB, { Document, Chat } from './AppwriteDB';
+import AppwriteDB, { Document, Chat, UserProfile } from './AppwriteDB';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -144,6 +144,9 @@ export class RAGService {
     try {
       console.log(`Processing document: ${documentTitle}`);
       
+      // Ensure user profile exists before processing
+      await this.appwriteDB.ensureUserProfile(userId);
+      
       // Check if user has enough tokens (rough estimation)
       const estimatedTokens = Math.ceil(textContent.length / 4) * 0.1; // Rough estimation for processing cost
       // const hasTokens = await this.appwriteDB.checkTokenLimit(userId, estimatedTokens);
@@ -244,6 +247,9 @@ export class RAGService {
   ): Promise<ChatResponse> {
     try {
       console.log(`Processing chat message for user: ${userId}`);
+      
+      // Ensure user profile exists before processing
+      await this.appwriteDB.ensureUserProfile(userId);
 
       // Check token limit
       const estimatedTokens = Math.ceil(message.length / 4) * 2; // Rough estimation
@@ -326,7 +332,14 @@ export class RAGService {
   }
 
   /**
-   * Get chat history
+   * Ensure user profile exists
+   */
+  async ensureUserProfile(userId: string): Promise<UserProfile> {
+    return await this.appwriteDB.ensureUserProfile(userId);
+  }
+
+  /**
+   * Get chat history for a user
    */
   async getChatHistory(userId: string, documentId?: string): Promise<Chat[]> {
     return this.appwriteDB.getChatHistory(userId, documentId);

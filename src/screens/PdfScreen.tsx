@@ -51,7 +51,7 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
       console.error('Error initializing RAG service:', error);
       Alert.alert('Error', 'Failed to initialize document processing service.');
     }
-  }; const loadUserDocuments = async () => {
+  };   const loadUserDocuments = async () => {
     if (!ragService) return;
 
     try {
@@ -66,6 +66,10 @@ const PdfScreen: React.FC<Props> = ({ userId }) => {
         console.log('Running collection access diagnostics...');
         await ragService.testCollectionAccess();
       }
+
+      // Ensure user profile exists
+      console.log('Ensuring user profile exists...');
+      await ragService.ensureUserProfile(userId);
 
       // Proceed to get documents since collections are accessible
       const documents = await ragService.getUserDocuments(userId);
