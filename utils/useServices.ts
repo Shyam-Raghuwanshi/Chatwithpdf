@@ -29,11 +29,10 @@ interface UseServicesReturn {
  * Hook to manage services across the application
  */
 export const useServices = (options: UseServicesOptions = {}): UseServicesReturn => {
-  const {
-    autoInitialize = true,
-    enablePreloading = true,
-    userId
-  } = options;
+  console.log('🔍 useServices: Hook called', options);
+  const mainHookStartTime = Date.now();
+  
+  const { autoInitialize = false, enablePreloading = false, userId } = options;
 
   const [ragService, setRagService] = useState<RAGService | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,6 +67,18 @@ export const useServices = (options: UseServicesOptions = {}): UseServicesReturn
       }
     }
   }, [userId, autoInitialize]);
+
+  // Try to get cached service immediately on mount
+  useEffect(() => {
+    const cachedService = serviceManager.getCachedRAGService();
+    if (cachedService && !ragService) {
+      console.log('⚡ useServices: Found cached service immediately');
+      setRagService(cachedService);
+      setIsInitialized(true);
+      setIsLoading(false);
+      return;
+    }
+  }, [ragService]);
 
   // Auto-initialize services
   useEffect(() => {
@@ -180,63 +191,85 @@ export const useServices = (options: UseServicesOptions = {}): UseServicesReturn
  * Hook specifically for RAG service with additional utilities and parallel loading
  */
 export const useRAGService = (userId?: string) => {
+  console.log('🔍 useRAGService: Hook called', { userId });
+  const hookStartTime = Date.now();
+  
   const services = useServices({ 
     autoInitialize: true, 
     enablePreloading: true, 
     userId 
   });
 
+  console.log('🔍 useRAGService: useServices returned', {
+    hasRagService: !!services.ragService,
+    isLoading: services.isLoading,
+    isInitialized: services.isInitialized,
+    timeSinceStart: Date.now() - hookStartTime
+  });
+
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const documentsLoadedRef = useRef(false);
 
-  // Load documents in parallel with service initialization
+  // Load documents instantly without waiting for RAG initialization
   const loadUserDocuments = useCallback(async (ragService?: RAGService) => {
-    if (!userId) return;
+    if (!userId || loadingDocuments) return;
 
     setLoadingDocuments(true);
+    console.log('🚀 Loading documents instantly...');
+    
     try {
-      // Use provided service or get from services
-      const serviceToUse = ragService || services.ragService;
+      // Try multiple approaches for instant loading
+      let service = ragService;
       
-      if (!serviceToUse) {
-        // If no service available, try to get one
-        const service = await services.getRagService();
-        const docs = await service.getUserDocuments(userId);
-        setDocuments(docs);
-      } else {
-        const docs = await serviceToUse.getUserDocuments(userId);
-        setDocuments(docs);
+      if (!service) {
+        // First try cached service (should be available from background init)
+        const cachedService = serviceManager.getCachedRAGService();
+        if (cachedService) {
+          service = cachedService;
+        }
       }
       
-      documentsLoadedRef.current = true;
+      if (!service) {
+        // If no cached service, get one quickly (ultra-fast mode)
+        console.log('⚡ Getting service in ultra-fast mode...');
+        service = await services.getRagService();
+      }
+      
+      if (service) {
+        console.log('📄 Loading documents with service...');
+        const docs = await service.getUserDocuments(userId);
+        setDocuments(docs);
+        documentsLoadedRef.current = true;
+        console.log(`✅ Loaded ${docs.length} documents instantly`);
+      } else {
+        console.log('⏳ Service not ready, loading will happen when service initializes');
+        setDocuments([]); // Set empty for now
+      }
     } catch (error) {
-      console.error('Failed to load user documents:', error);
+      console.error('📄 Document loading error:', error);
+      // Don't fail completely, just set empty documents
+      setDocuments([]);
     } finally {
       setLoadingDocuments(false);
     }
-  }, [userId, services]);
+  }, [userId, services, loadingDocuments]);
 
-  // Start loading documents immediately, even before service is fully ready
+  // Load documents immediately on component mount - don't wait for anything
   useEffect(() => {
     if (userId && !documentsLoadedRef.current) {
-      // Try to load documents immediately if we have a cached service
-      const cachedService = serviceManager.getCachedRAGService();
-      if (cachedService) {
-        console.log('🚀 Loading documents with cached service');
-        loadUserDocuments(cachedService);
-      } else {
-        // Start loading in parallel with service initialization
-        console.log('🚀 Starting parallel service init + document loading');
-        services.getRagService().then(service => {
-          loadUserDocuments(service);
-        }).catch(error => {
-          console.error('Failed to get service for document loading:', error);
-          setLoadingDocuments(false);
-        });
-      }
+      console.log('🚀 Triggering immediate document loading...');
+      loadUserDocuments(); // Start loading immediately
     }
-  }, [userId, loadUserDocuments, services]);
+  }, [userId, loadUserDocuments]);
+
+  // Also load when service becomes available (if not already loaded)
+  useEffect(() => {
+    if (services.ragService && userId && !documentsLoadedRef.current) {
+      console.log('🔄 Service ready, loading documents if not already loaded...');
+      loadUserDocuments(services.ragService);
+    }
+  }, [services.ragService, userId, loadUserDocuments]);
 
   return {
     ...services,

@@ -19,10 +19,10 @@ import SettingsScreen from './SettingsScreen';
 import type { User } from '../../types/AuthModule';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
-import RAGService, { ProcessDocumentResult } from '../../utils/RAGService';
+import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { defaultConfig } from '../../utils/Config';
-import { useRAGService } from '../../utils/useServices';
+import { useBackgroundRAG } from '../../utils/useBackgroundServices';
 
 interface DashboardScreenProps {
   user: User;
@@ -30,6 +30,10 @@ interface DashboardScreenProps {
 }
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
+  // 🔍 Performance debugging
+  const mountTime = useRef(Date.now());
+  console.log('🔍 DashboardScreen: Component mounting...', { userId: user.id });
+
   const [loading, setLoading] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings'>('dashboard');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -42,29 +46,43 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const slideAnim = useRef(new Animated.Value(0)).current;
   const screenHeight = Dimensions.get('window').height;
   
-  // Use centralized service management
+  // Use ultra-fast background services - documents load instantly!
+  console.log('🔍 DashboardScreen: About to call useBackgroundRAG...');
+  const serviceCallTime = Date.now();
+  
   const {
     ragService,
     isLoading: servicesLoading,
-    isInitialized: servicesInitialized,
+    isReady: servicesInitialized,
     error: servicesError,
     documents: userDocuments,
     loadingDocuments,
     loadUserDocuments,
-    serviceStats
-  } = useRAGService(user.id);
+    cacheStatus
+  } = useBackgroundRAG(user.id);
 
-  // Log service statistics for debugging
+  console.log('🔍 DashboardScreen: useBackgroundRAG returned', {
+    hasService: !!ragService,
+    servicesLoading,
+    servicesInitialized,
+    documentsCount: userDocuments.length,
+    loadingDocuments,
+    timeSinceCall: Date.now() - serviceCallTime,
+    timeSinceMount: Date.now() - mountTime.current,
+    cacheStatus
+  });
+
+  // Log cache status for debugging
   React.useEffect(() => {
-    if (serviceStats.ragServiceExists) {
-      console.log('📊 Service Stats:', {
-        age: Math.round(serviceStats.ragServiceAge / 1000) + 's',
-        exists: serviceStats.ragServiceExists,
-        isInitializing: serviceStats.isInitializing,
-        lastInit: serviceStats.lastInitialization?.toLocaleString()
+    if (cacheStatus.isWarm) {
+      console.log('📊 Cache Status:', {
+        isWarm: cacheStatus.isWarm,
+        isReady: cacheStatus.hasRAGService,
+        cacheAge: Math.round(cacheStatus.cacheAge / 1000) + 's',
+        isValid: cacheStatus.isValid
       });
     }
-  }, [serviceStats]);
+  }, [cacheStatus]);
 
   const formatTimeAgo = (date: Date) => {
     const now = new Date();

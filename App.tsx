@@ -12,15 +12,17 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import type { User } from './types/AuthModule';
 import ServiceInitializer from './utils/ServiceInitializer';
 import ServicePerformanceMonitor from './utils/ServicePerformanceMonitor';
-import ServiceManager from './utils/ServiceManager';
+import { backgroundService } from './utils/BackgroundServiceManager';
 
 function App(): React.JSX.Element {
   const [user, setUser] = useState<User | null>(null);
 
-  // 🚀 Start background RAG initialization immediately when app loads
+  // 🚀 Start background service warmup immediately when app loads
   useEffect(() => {
-    console.log('🚀 App: Starting background RAG initialization...');
-    ServiceManager.startBackgroundInit();
+    console.log('🚀 App: Starting background service warmup...');
+    // Background service starts warming up automatically when imported
+    // This is completely non-blocking and runs in the background
+    console.log('🎯 App: Background services will be ready soon!');
   }, []);
 
   const handleLoginSuccess = (authenticatedUser: User) => {
