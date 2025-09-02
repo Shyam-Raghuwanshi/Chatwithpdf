@@ -16,7 +16,7 @@ import {
   Modal,
 } from 'react-native';
 import RAGService, { ChatResponse, ProcessDocumentResult } from '../../utils/RAGService';
-import { Document } from '../../utils/AppwriteDB';
+import { Document, Chat } from '../../utils/AppwriteDB';
 import { defaultConfig } from '../../utils/Config';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
@@ -194,14 +194,69 @@ const ChatScreen: React.FC<Props> = ({
         primaryDocumentId
       );
 
-      const chatMessages: ChatMessage[] = history.map(chat => ({
-        id: chat.$id!,
-        message: chat.message,
-        response: chat.response,
-        timestamp: chat.createdAt,
-      }));
+      // Convert new conversation-based format to ChatMessage format for UI
+      const chatMessages: ChatMessage[] = [];
+      
+      // Group messages by conversationId and process them
+      const conversationMap = new Map<string, Chat[]>();
+      history.forEach(chat => {
+        const convId = chat.conversationId || 'legacy';
+        if (!conversationMap.has(convId)) {
+          conversationMap.set(convId, []);
+        }
+        conversationMap.get(convId)!.push(chat);
+      });
 
-      setMessages(chatMessages.reverse()); // Show oldest first
+      // Convert grouped conversations to ChatMessage format
+      conversationMap.forEach((messages, conversationId) => {
+        if (messages.length === 1 && messages[0].messageType === 'legacy') {
+          // Handle legacy single message format - extract from content
+          const legacyChat = messages[0];
+          if (legacyChat.content.includes('User:') && legacyChat.content.includes('Assistant:')) {
+            const parts = legacyChat.content.split('\n\nAssistant: ');
+            if (parts.length === 2) {
+              const userMessage = parts[0].replace('User: ', '');
+              const assistantResponse = parts[1];
+              chatMessages.push({
+                id: legacyChat.$id!,
+                message: userMessage,
+                response: assistantResponse,
+                timestamp: legacyChat.createdAt,
+              });
+            }
+          }
+        } else {
+          // Handle new conversation format (user + assistant pairs)
+          const sortedMessages = messages.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+          let userMessage = '';
+          let assistantResponse = '';
+          let messageId = '';
+          let timestamp = new Date();
+
+          for (const msg of sortedMessages) {
+            if (msg.messageType === 'user') {
+              userMessage = msg.content;
+              messageId = msg.$id!;
+              timestamp = msg.createdAt;
+            } else if (msg.messageType === 'assistant') {
+              assistantResponse = msg.content;
+            }
+          }
+
+          if (userMessage && assistantResponse) {
+            chatMessages.push({
+              id: messageId,
+              message: userMessage,
+              response: assistantResponse,
+              timestamp: timestamp,
+            });
+          }
+        }
+      });
+
+      // Sort by timestamp and show oldest first
+      chatMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      setMessages(chatMessages);
     } catch (error) {
       console.error('Error loading chat history:', error);
     }

@@ -404,15 +404,14 @@ export class RAGService {
         }
       }
 
-      // Step 4: Store chat in database
-      await this.appwriteDB.storeChatMessage({
+      // Step 4: Store chat in database using new conversation-based approach
+      await this.appwriteDB.storeConversationExchange(
         userId,
+        message, // user message
+        chatResponse.response, // AI response
         documentId,
-        message,
-        response: chatResponse.response,
-        tokensUsed: chatResponse.tokensUsed,
-        createdAt: new Date(),
-      });
+        chatId // conversation ID (optional, will be generated if not provided)
+      );
 
       // Update token usage (decrease remaining tokens)
       await this.appwriteDB.updateTokenUsage(userId, chatResponse.tokensUsed);
@@ -541,10 +540,36 @@ export class RAGService {
 
       // Get recent chat history for context
       const recentChats = await this.appwriteDB.getChatHistory(userId, documentId);
-      const chatHistory = recentChats.slice(-3).map(chat => ({
-        question: chat.message,
-        answer: chat.response
-      }));
+      
+      // Group chats by conversationId and build Q&A pairs
+      const chatHistory: Array<{question: string, answer: string}> = [];
+      const conversationMap = new Map<string, {user?: string, assistant?: string}>();
+      
+      // Process chats to pair user messages with assistant responses
+      recentChats.slice(-6).forEach(chat => {
+        const conversation = conversationMap.get(chat.conversationId) || {};
+        
+        if (chat.messageType === 'user') {
+          conversation.user = chat.content;
+        } else if (chat.messageType === 'assistant') {
+          conversation.assistant = chat.content;
+        }
+        
+        conversationMap.set(chat.conversationId, conversation);
+        
+        // If we have both user and assistant messages, add to history
+        if (conversation.user && conversation.assistant) {
+          chatHistory.push({
+            question: conversation.user,
+            answer: conversation.assistant
+          });
+          // Clear the conversation to avoid duplicates
+          conversationMap.set(chat.conversationId, {});
+        }
+      });
+      
+      // Take the last 3 complete conversations
+      const recentHistory = chatHistory.slice(-3);
 
       // Build context for Perplexity
       const context: ChatContext = {
@@ -552,7 +577,7 @@ export class RAGService {
         documentContent: documentContent.length > 8000 
           ? documentContent.substring(0, 8000) + "\n\n[Content truncated due to length]"
           : documentContent,
-        chatHistory
+        chatHistory: recentHistory
       };
 
       const result = await this.perplexityAI.generateAnswer(message, context);

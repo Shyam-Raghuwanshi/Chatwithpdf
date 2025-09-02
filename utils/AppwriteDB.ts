@@ -25,10 +25,24 @@ export interface Chat {
   $id?: string;
   userId: string;
   documentId?: string;
-  message: string;
-  response: string;
-  tokensUsed: number;
+  conversationId: string; // Groups related messages (required in database)
+  messageType: 'user' | 'assistant' | 'system' | 'legacy'; // Type of message (required in database)
+  content: string; // The actual message content (required in database)
   createdAt: Date;
+  
+  // Enhanced fields (optional) - for future use
+  metadata?: {
+    model?: string; // AI model used
+    temperature?: number; // AI temperature setting
+    promptTokens?: number; // Tokens used in prompt
+    completionTokens?: number; // Tokens used in completion
+    processingTime?: number; // Time taken to generate response
+    error?: string; // Error message if any
+  };
+  parentMessageId?: string; // For threaded conversations
+  rating?: number; // User rating (1-5)
+  isEdited?: boolean; // If message was edited
+  editedAt?: Date; // When message was last edited
 }
 
 export interface Plan {
@@ -424,25 +438,24 @@ export class AppwriteDB {
   }
 
   /**
-   * Store a chat message and response
+   * Store a chat message and response (new conversation-based approach)
    */
   async storeChatMessage(chatData: Omit<Chat, '$id'>): Promise<Chat> {
     try {
-      // Prepare data, ensuring all required fields are present
+      // All chats now use the new format with required fields
       const dataToStore: any = {
         userId: chatData.userId,
-        message: chatData.message,
-        response: chatData.response,
-        tokensUsed: chatData.tokensUsed,
+        conversationId: chatData.conversationId,
+        messageType: chatData.messageType,
+        content: chatData.content,
         createdAt: new Date().toISOString(),
       };
 
-      // Only include documentId if it exists
       if (chatData.documentId) {
         dataToStore.documentId = chatData.documentId;
       }
 
-      console.log('Storing chat with data:', JSON.stringify(dataToStore, null, 2));
+      console.log('Storing chat message:', JSON.stringify(dataToStore, null, 2));
 
       const chat = await this.tablesDB.createRow(
         this.config.databaseId,
@@ -463,6 +476,77 @@ export class AppwriteDB {
       
       throw new Error(`Failed to store chat message: ${error}`);
     }
+  }
+
+  /**
+   * Store legacy format chat (message + response) - converts to new format
+   * Use this method if you have existing code that still uses the old format
+   */
+  async storeLegacyChat(
+    userId: string,
+    message: string,
+    response: string,
+    documentId?: string
+  ): Promise<Chat> {
+    // Convert legacy format to new conversation-based format
+    const conversationId = ID.unique();
+    
+    // Store as a single legacy entry with combined content
+    const chatData: Omit<Chat, '$id'> = {
+      userId,
+      conversationId,
+      messageType: 'legacy',
+      content: `User: ${message}\n\nAssistant: ${response}`,
+      createdAt: new Date(),
+      documentId,
+    };
+
+    return await this.storeChatMessage(chatData);
+  }
+
+  /**
+   * Store a conversation exchange (user message + AI response)
+   */
+  async storeConversationExchange(
+    userId: string,
+    userMessage: string,
+    aiResponse: string,
+    documentId?: string,
+    conversationId?: string
+  ): Promise<{ userMessage: Chat; aiResponse: Chat }> {
+    // Generate conversation ID if not provided
+    const convId = conversationId || ID.unique();
+    const now = new Date();
+
+    // Store user message
+    const userMessageData: Omit<Chat, '$id'> = {
+      userId,
+      conversationId: convId,
+      messageType: 'user',
+      content: userMessage,
+      createdAt: now,
+      documentId,
+    };
+
+    // Store AI response
+    const aiResponseData: Omit<Chat, '$id'> = {
+      userId,
+      conversationId: convId,
+      messageType: 'assistant',
+      content: aiResponse,
+      createdAt: now,
+      documentId,
+    };
+
+    const [userMsg, aiMsg] = await Promise.all([
+      this.storeChatMessage(userMessageData),
+      this.storeChatMessage(aiResponseData)
+    ]);
+
+    return {
+      userMessage: userMsg,
+      aiResponse: aiMsg
+    };
   }
 
   /**
@@ -494,6 +578,87 @@ export class AppwriteDB {
     } catch (error) {
       console.error('Error getting chat history:', error);
       throw new Error(`Failed to get chat history: ${error}`);
+    }
+  }
+
+  /**
+   * Get conversation history grouped by conversationId
+   */
+  async getConversationHistory(
+    userId: string,
+    conversationId: string,
+    limit: number = 50
+  ): Promise<Chat[]> {
+    try {
+      const queries = [
+        Query.equal('userId', userId),
+        Query.equal('conversationId', conversationId),
+        Query.orderAsc('createdAt'), // Chronological order for conversations
+        Query.limit(limit),
+      ];
+
+      const result = await this.tablesDB.listRows(
+        this.config.databaseId,
+        this.COLLECTIONS.CHATS,
+        queries
+      );
+
+      return result.rows.map(chat => this.transformChat(chat));
+    } catch (error) {
+      console.error('Error getting conversation history:', error);
+      throw new Error(`Failed to get conversation history: ${error}`);
+    }
+  }
+
+  /**
+   * Get all conversations for a user (grouped summary)
+   */
+  async getUserConversations(
+    userId: string,
+    documentId?: string,
+    limit: number = 20
+  ): Promise<{ conversationId: string; lastMessage: Chat; messageCount: number }[]> {
+    try {
+      const queries = [
+        Query.equal('userId', userId),
+        Query.orderDesc('createdAt'),
+        Query.limit(100), // Get more to group properly
+      ];
+
+      if (documentId) {
+        queries.push(Query.equal('documentId', documentId));
+      }
+
+      const result = await this.tablesDB.listRows(
+        this.config.databaseId,
+        this.COLLECTIONS.CHATS,
+        queries
+      );
+
+      const chats = result.rows.map(chat => this.transformChat(chat));
+      
+      // Group by conversationId
+      const conversationMap = new Map<string, Chat[]>();
+      
+      chats.forEach(chat => {
+        const convId = chat.conversationId || 'legacy';
+        if (!conversationMap.has(convId)) {
+          conversationMap.set(convId, []);
+        }
+        conversationMap.get(convId)!.push(chat);
+      });
+
+      // Convert to summary format
+      const conversations = Array.from(conversationMap.entries()).map(([conversationId, messages]) => ({
+        conversationId,
+        lastMessage: messages[0], // Already sorted by desc date
+        messageCount: messages.length
+      }));
+
+      return conversations.slice(0, limit);
+    } catch (error) {
+      console.error('Error getting user conversations:', error);
+      throw new Error(`Failed to get user conversations: ${error}`);
     }
   }
 
