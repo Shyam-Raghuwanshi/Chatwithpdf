@@ -6,8 +6,7 @@ export interface UserProfile {
   $id?: string;
   userId: string;
   plan: 'free' | 'pro' | 'enterprise';
-  tokensUsed: number;
-  tokensLimit: number;
+  tokenRemaining: number;
   subscriptionValidTill?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -246,8 +245,7 @@ export class AppwriteDB {
 
         // Only include fields that are provided and valid
         if (profileData.plan) updateData.plan = profileData.plan;
-        if (typeof profileData.tokensUsed === 'number') updateData.tokensUsed = profileData.tokensUsed;
-        if (typeof profileData.tokensLimit === 'number') updateData.tokensLimit = profileData.tokensLimit;
+        if (typeof profileData.tokenRemaining === 'number') updateData.tokenRemaining = profileData.tokenRemaining;
         if (profileData.subscriptionValidTill) updateData.subscriptionValidTill = profileData.subscriptionValidTill.toISOString();
 
         console.log('Updating user profile with data:', JSON.stringify(updateData, null, 2));
@@ -264,8 +262,7 @@ export class AppwriteDB {
         const createData: any = {
           userId,
           plan: profileData.plan || 'free',
-          tokensUsed: profileData.tokensUsed || 0,
-          tokensLimit: profileData.tokensLimit || 400000,
+          tokenRemaining: profileData.tokenRemaining || 10000,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -501,7 +498,7 @@ export class AppwriteDB {
   }
 
   /**
-   * Update user token usage
+   * Update user token remaining (decrease from available tokens)
    */
   async updateTokenUsage(userId: string, tokensUsed: number): Promise<void> {
     try {
@@ -512,24 +509,23 @@ export class AppwriteDB {
         console.log(`User profile not found for ${userId}, creating new profile...`);
         profile = await this.createOrUpdateUserProfile(userId, {
           plan: 'free',
-          tokensUsed: 0,
-          tokensLimit: 400000,
+          tokenRemaining: 10000,
         });
       }
 
-      const newTokenUsage = profile.tokensUsed + tokensUsed;
+      const newTokenRemaining = Math.max(0, profile.tokenRemaining - tokensUsed);
       
       await this.tablesDB.updateRow(
         this.config.databaseId,
         this.COLLECTIONS.USER_PROFILES,
         profile.$id!,
         {
-          tokensUsed: newTokenUsage,
+          tokenRemaining: newTokenRemaining,
           updatedAt: new Date().toISOString(),
         }
       );
       
-      console.log(`Updated token usage for user ${userId}: ${profile.tokensUsed} + ${tokensUsed} = ${newTokenUsage}`);
+      console.log(`Updated token usage for user ${userId}: ${profile.tokenRemaining} - ${tokensUsed} = ${newTokenRemaining}`);
     } catch (error) {
       console.error('Error updating token usage:', error);
       throw new Error(`Failed to update token usage: ${error}`);
@@ -548,19 +544,17 @@ export class AppwriteDB {
         console.log(`User profile not found for ${userId} during token check, creating new profile...`);
         profile = await this.createOrUpdateUserProfile(userId, {
           plan: 'free',
-          tokensUsed: 0,
-          tokensLimit: 400000,
+          tokenRemaining: 10000,
         });
       }
-      
-      const hasEnoughTokens = (profile.tokensUsed + requiredTokens) <= profile.tokensLimit;
-      console.log(`Token check for user ${userId}: ${profile.tokensUsed} + ${requiredTokens} <= ${profile.tokensLimit} = ${hasEnoughTokens}`);
+
+      const hasEnoughTokens = profile.tokenRemaining >= requiredTokens;
+      console.log(`Token check for user ${userId}: ${profile.tokenRemaining} >= ${requiredTokens} = ${hasEnoughTokens}`);
       
       return hasEnoughTokens;
     } catch (error) {
       console.error('Error checking token limit:', error);
-      // Return true by default to not block users due to errors
-      return true;
+      throw new Error(`Failed to check token limit: ${error}`);
     }
   }
 
@@ -662,8 +656,7 @@ export class AppwriteDB {
         try {
           profile = await this.createOrUpdateUserProfile(userId, {
             plan: 'free',
-            tokensUsed: 0,
-            tokensLimit: 400000,
+            tokenRemaining: 10000,
           });
           console.log(`✅ Successfully created user profile for: ${userId}`);
         } catch (createError) {
@@ -677,8 +670,7 @@ export class AppwriteDB {
             {
               userId,
               plan: 'free',
-              tokensUsed: 0,
-              tokensLimit: 400000,
+              tokenRemaining: 10000,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             }

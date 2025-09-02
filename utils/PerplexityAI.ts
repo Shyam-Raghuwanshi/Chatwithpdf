@@ -31,6 +31,8 @@ export interface PerplexityResponse {
   response?: string;
   error?: string;
   tokensUsed?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   model?: string;
 }
 
@@ -107,6 +109,8 @@ export class PerplexityAI {
         success: true,
         response: aiResponse.trim(),
         tokensUsed: data.usage?.total_tokens || 0,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
         model: data.model || this.config.model
       };
 
@@ -245,6 +249,8 @@ Summary:`;
         success: true,
         response: summary.trim(),
         tokensUsed: data.usage?.total_tokens || 0,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
         model: data.model || this.config.model
       };
 

@@ -7,9 +7,7 @@ userId → String (size: 36, required) – store Appwrite User ID
 
 plan → Enum (free, pro, enterprise), required, default = free
 
-tokensUsed → Integer, required, default = 0
-
-tokensLimit → Integer, required, default = 400000
+tokenRemaining → Integer, required, default = 10000
 
 subscriptionValidTill → Datetime, optional
 
@@ -40,8 +38,6 @@ documentId → String (size: 36, optional)
 message → String (size: 2000, required)
 
 response → String (size: 4000, required)
-
-tokensUsed → Integer, required
 
 createdAt → Datetime, required
 

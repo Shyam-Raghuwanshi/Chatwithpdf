@@ -2,7 +2,8 @@ import TextChunker, { TextChunk } from './TextChunker';
 import VoyageAIEmbedding from './VoyageAIEmbedding';
 import QdrantVectorDB from './QdrantVectorDB';
 import AppwriteDB, { Document, Chat, UserProfile } from './AppwriteDB';
-import PerplexityAI, { ChatContext } from './PerplexityAI';
+import PerplexityAI, { ChatContext, PerplexityResponse } from './PerplexityAI';
+import TokenUtils from './TokenUtils';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -368,15 +369,18 @@ export class RAGService {
           documentId
         );
 
+        // Process token usage - just use total tokens
+        const totalTokens = perplexityResponse.tokensUsed || estimatedTokens;
+
         chatResponse = {
-          response: perplexityResponse,
+          response: perplexityResponse.response || 'No response generated',
           sources: searchResults.map(result => ({
             chunkId: result.id,
             text: result.payload.text,
             score: result.score,
             documentTitle: result.payload.documentTitle,
           })),
-          tokensUsed: estimatedTokens,
+          tokensUsed: totalTokens,
         };
 
         console.log('✅ Successfully used vector search + Perplexity for chat');
@@ -406,12 +410,12 @@ export class RAGService {
         documentId,
         message,
         response: chatResponse.response,
-        tokensUsed: estimatedTokens,
+        tokensUsed: chatResponse.tokensUsed,
         createdAt: new Date(),
       });
 
-      // Update token usage
-      await this.appwriteDB.updateTokenUsage(userId, estimatedTokens);
+      // Update token usage (decrease remaining tokens)
+      await this.appwriteDB.updateTokenUsage(userId, chatResponse.tokensUsed);
 
       return chatResponse;
       
@@ -474,7 +478,7 @@ export class RAGService {
     question: string,
     relevantChunks: Array<{ text: string; score: number }>,
     documentId?: string
-  ): Promise<string> {
+  ): Promise<PerplexityResponse> {
     try {
       // Get document info if available
       let documentTitle = undefined;
@@ -492,7 +496,7 @@ export class RAGService {
       const result = await this.perplexityAI.generateAnswer(question, context);
       
       if (result.success && result.response) {
-        return result.response;
+        return result;
       } else {
         throw new Error(result.error || 'Failed to generate response with Perplexity');
       }
@@ -557,6 +561,9 @@ export class RAGService {
         throw new Error(result.error || 'Failed to generate response with Perplexity fallback');
       }
 
+      // Process token usage from Perplexity response
+      const totalTokens = result.tokensUsed || estimatedTokens;
+
       return {
         response: result.response,
         sources: [{
@@ -565,7 +572,7 @@ export class RAGService {
           score: 1.0,
           documentTitle
         }],
-        tokensUsed: estimatedTokens,
+        tokensUsed: totalTokens,
       };
 
     } catch (error) {
@@ -649,6 +656,58 @@ export class RAGService {
    */
   getCurrentPerplexityModel(): string {
     return this.config.perplexity?.model || 'sonar-pro';
+  }
+
+  /**
+   * Generate response using Perplexity AI with retrieved context
+   */
+
+  /**
+   * Get detailed token statistics for a user
+   */
+  async getUserTokenStats(userId: string): Promise<{
+    profile: UserProfile;
+    stats: any;
+    limit: any;
+  }> {
+    try {
+      const profile = await this.appwriteDB.getUserProfile(userId);
+      if (!profile) {
+        throw new Error('User profile not found');
+      }
+
+      // Get chat count for average calculation
+      const chatHistory = await this.appwriteDB.getChatHistory(userId);
+      const totalChats = chatHistory.length;
+
+      // Calculate total tokens used from remaining tokens
+      const totalTokensUsed = 10000 - profile.tokenRemaining; // Assuming default 10000
+
+      // Calculate statistics - simplified for tokenRemaining model
+      const stats = {
+        totalTokens: totalTokensUsed,
+        inputTokens: Math.floor(totalTokensUsed * 0.7), // Estimated
+        outputTokens: Math.floor(totalTokensUsed * 0.3), // Estimated
+        averageTokensPerChat: totalChats > 0 ? Math.round(totalTokensUsed / totalChats) : 0,
+        estimatedCost: (totalTokensUsed / 1000) * 0.001, // Rough estimate
+      };
+
+      // Check limit status - simplified
+      const limit = {
+        isNearLimit: profile.tokenRemaining < 1000, // Warning if less than 1000 tokens
+        percentUsed: ((10000 - profile.tokenRemaining) / 10000),
+        remainingTokens: profile.tokenRemaining,
+      };
+
+      return {
+        profile,
+        stats,
+        limit,
+      };
+    } catch (error) {
+      console.error('Error getting user token stats:', error);
+      throw error;
+    }
   }
 }
 
