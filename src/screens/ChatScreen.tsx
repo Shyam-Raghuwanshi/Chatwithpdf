@@ -70,9 +70,50 @@ const ChatScreen: React.FC<Props> = ({
   const [showSourceDropdown, setShowSourceDropdown] = useState(false);
   const [selectedSourceForAction, setSelectedSourceForAction] = useState<Document | null>(null);
   const [deletingDocument, setDeletingDocument] = useState(false);
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('sonar-pro');
   const flatListRef = useRef<FlatList>(null);
   const screenHeight = Dimensions.get('window').height;
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
+
+  // Available Perplexity models
+  const availableModels = [
+    {
+      id: 'sonar',
+      name: 'Sonar',
+      description: 'Lightweight, cost-effective search model',
+      category: 'Search',
+      icon: '🔍'
+    },
+    {
+      id: 'sonar-pro',
+      name: 'Sonar Pro',
+      description: 'Advanced search with complex queries support',
+      category: 'Search',
+      icon: '🔍+'
+    },
+    {
+      id: 'sonar-reasoning',
+      name: 'Sonar Reasoning',
+      description: 'Fast reasoning model for problem-solving',
+      category: 'Reasoning',
+      icon: '🧠'
+    },
+    {
+      id: 'sonar-reasoning-pro',
+      name: 'Sonar Reasoning Pro',
+      description: 'Precise reasoning powered by DeepSeek-R1',
+      category: 'Reasoning',
+      icon: '🧠+'
+    },
+    {
+      id: 'sonar-deep-research',
+      name: 'Sonar Deep Research',
+      description: 'Expert-level research model for comprehensive reports',
+      category: 'Research',
+      icon: '📊'
+    }
+  ];
 
   // Use centralized service management, but prefer external service if provided
   const {
@@ -109,6 +150,8 @@ const ChatScreen: React.FC<Props> = ({
     if (ragService && isInitialized) {
       loadChatHistory();
       loadChatSpecificDocuments();
+      // Load current model from RAG service
+      setSelectedModel(ragService.getCurrentPerplexityModel());
     }
   }, [ragService, isInitialized, selectedDocument]);
 
@@ -383,6 +426,9 @@ const ChatScreen: React.FC<Props> = ({
     const userMessage = inputText.trim();
     const messageId = Date.now().toString();
 
+    // Update the model in RAG service before sending message
+    ragService.updatePerplexityModel(selectedModel);
+
     // Add user message to UI immediately
     const newMessage: ChatMessage = {
       id: messageId,
@@ -567,6 +613,9 @@ const ChatScreen: React.FC<Props> = ({
             <Text style={styles.askLabel}>Ask {chatSources.length || 0} source{chatSources.length !== 1 ? 's' : ''}...</Text>
             <View style={styles.sourceIndicator}>
               <Text style={styles.sourceCount}>📄{chatSources.length}</Text>
+              <Text style={styles.modelIndicator}>
+                {availableModels.find(m => m.id === selectedModel)?.icon} {availableModels.find(m => m.id === selectedModel)?.name}
+              </Text>
             </View>
           </View>
         </View>
@@ -594,6 +643,14 @@ const ChatScreen: React.FC<Props> = ({
           maxLength={500}
           editable={!isLoading}
         />
+        <TouchableOpacity
+          style={styles.modelSelectorButton}
+          onPress={() => setShowModelSelector(true)}
+        >
+          <Text style={styles.modelSelectorText}>
+            {availableModels.find(m => m.id === selectedModel)?.icon || '🤖'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
           onPress={sendMessage}
@@ -639,6 +696,9 @@ const ChatScreen: React.FC<Props> = ({
                   : `${chatSources.length} Sources Chat`
                 : 'Chat with Sources'
               }
+            </Text>
+            <Text style={styles.headerSubtitle}>
+              {availableModels.find(m => m.id === selectedModel)?.icon} {availableModels.find(m => m.id === selectedModel)?.name}
             </Text>
           </View>
           <TouchableOpacity style={styles.headerAction}>
@@ -824,6 +884,77 @@ const ChatScreen: React.FC<Props> = ({
             </View>
           </TouchableOpacity>
         </Modal>
+
+        {/* Model Selector Modal */}
+        <Modal
+          visible={showModelSelector}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowModelSelector(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modelSelectorModal}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select AI Model</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowModelSelector(false)}
+                >
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modelCategoryTitle}>Available Models</Text>
+                
+                {availableModels.map((model) => (
+                  <TouchableOpacity
+                    key={model.id}
+                    style={[
+                      styles.modelOption,
+                      selectedModel === model.id && styles.selectedModelOption
+                    ]}
+                    onPress={() => {
+                      setSelectedModel(model.id);
+                      setShowModelSelector(false);
+                    }}
+                  >
+                    <View style={styles.modelIcon}>
+                      <Text style={styles.modelIconText}>{model.icon}</Text>
+                    </View>
+                    <View style={styles.modelInfo}>
+                      <View style={styles.modelHeader}>
+                        <Text style={styles.modelName}>{model.name}</Text>
+                        <View style={styles.modelCategoryBadge}>
+                          <Text style={styles.modelCategoryText}>{model.category}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.modelDescription}>{model.description}</Text>
+                    </View>
+                    {selectedModel === model.id && (
+                      <View style={styles.selectedIndicator}>
+                        <Text style={styles.selectedIndicatorText}>✓</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+
+                <View style={styles.modelInfoSection}>
+                  <Text style={styles.modelInfoTitle}>Model Categories:</Text>
+                  <Text style={styles.modelInfoText}>
+                    <Text style={styles.modelInfoBold}>Search:</Text> Best for quick factual queries and information retrieval
+                  </Text>
+                  <Text style={styles.modelInfoText}>
+                    <Text style={styles.modelInfoBold}>Reasoning:</Text> Ideal for complex analysis and multi-step problem solving
+                  </Text>
+                  <Text style={styles.modelInfoText}>
+                    <Text style={styles.modelInfoBold}>Research:</Text> Perfect for comprehensive reports and in-depth analysis
+                  </Text>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -870,6 +1001,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: 'white',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
   },
   headerAction: {
     padding: 8,
@@ -1038,10 +1174,19 @@ const styles = StyleSheet.create({
   sourceIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   sourceCount: {
     fontSize: 14,
     color: '#007AFF',
+  },
+  modelIndicator: {
+    fontSize: 12,
+    color: '#666',
+    backgroundColor: '#3a3a3c',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   messagesList: {
     flex: 1,
@@ -1063,12 +1208,26 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    marginRight: 12,
+    marginRight: 8,
     maxHeight: 100,
     fontSize: 16,
     color: 'white',
     borderWidth: 1,
     borderColor: '#3a3a3c',
+  },
+  modelSelectorButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#3a3a3c',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  modelSelectorText: {
+    fontSize: 16,
   },
   sendButton: {
     width: 40,
@@ -1376,6 +1535,116 @@ const styles = StyleSheet.create({
     backgroundColor: '#3a3a3c',
     marginHorizontal: 12,
     marginVertical: 4,
+  },
+
+  // Model Selector Styles
+  modelSelectorModal: {
+    backgroundColor: '#2c2c2e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+    minHeight: '50%',
+    paddingTop: 20,
+  },
+  modelCategoryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 16,
+  },
+  modelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  selectedModelOption: {
+    borderColor: '#007AFF',
+    backgroundColor: '#0A1A2A',
+  },
+  modelIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#3a3a3c',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modelIconText: {
+    fontSize: 20,
+  },
+  modelInfo: {
+    flex: 1,
+  },
+  modelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  modelName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    flex: 1,
+  },
+  modelCategoryBadge: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  modelCategoryText: {
+    fontSize: 11,
+    color: 'white',
+    fontWeight: '600',
+  },
+  modelDescription: {
+    fontSize: 14,
+    color: '#999',
+    lineHeight: 18,
+  },
+  selectedIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  selectedIndicatorText: {
+    fontSize: 14,
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  modelInfoSection: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  modelInfoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 12,
+  },
+  modelInfoText: {
+    fontSize: 14,
+    color: '#999',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  modelInfoBold: {
+    fontWeight: '600',
+    color: '#007AFF',
   },
 });
 

@@ -632,6 +632,24 @@ export class RAGService {
       };
     }
   }
+
+  /**
+   * Update Perplexity model configuration
+   */
+  updatePerplexityModel(model: string): void {
+    this.config.perplexity = {
+      ...this.config.perplexity,
+      model: model
+    };
+    this.perplexityAI.updateConfig({ model });
+  }
+
+  /**
+   * Get current Perplexity model
+   */
+  getCurrentPerplexityModel(): string {
+    return this.config.perplexity?.model || 'sonar-pro';
+  }
 }
 
 export default RAGService;
