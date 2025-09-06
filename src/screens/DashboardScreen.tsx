@@ -6,7 +6,6 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
-  Image,
   ScrollView,
   Modal,
   Animated,
@@ -18,21 +17,18 @@ import PdfScreen from './PdfScreen';
 import SettingsScreen from './SettingsScreen';
 import type { User } from '../../types/AuthModule';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
-import DocumentPicker from '../components/DocumentPicker';
 import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
-import { defaultConfig } from '../../utils/Config';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
-
+import DocumentPicker from '../components/DocumentPicker';
 interface DashboardScreenProps {
   user: User;
   onLogout: () => void;
 }
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
-  // 🔍 Performance debugging
+  // Performance debugging
   const mountTime = useRef(Date.now());
-  console.log('🔍 DashboardScreen: Component mounting...', { userId: user.id });
 
   const [loading, setLoading] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings'>('dashboard');
@@ -45,11 +41,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const [deletingDocument, setDeletingDocument] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const screenHeight = Dimensions.get('window').height;
-  
-  // Use ultra-fast background services - documents load instantly!
-  console.log('🔍 DashboardScreen: About to call useBackgroundRAG...');
+
+  // Use ultra-fast background services
   const serviceCallTime = Date.now();
-  
+
   const {
     ragService,
     isLoading: servicesLoading,
@@ -60,29 +55,6 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     loadUserDocuments,
     cacheStatus
   } = useBackgroundRAG(user.id);
-
-  console.log('🔍 DashboardScreen: useBackgroundRAG returned', {
-    hasService: !!ragService,
-    servicesLoading,
-    servicesInitialized,
-    documentsCount: userDocuments.length,
-    loadingDocuments,
-    timeSinceCall: Date.now() - serviceCallTime,
-    timeSinceMount: Date.now() - mountTime.current,
-    cacheStatus
-  });
-
-  // Log cache status for debugging
-  React.useEffect(() => {
-    if (cacheStatus.isWarm) {
-      console.log('📊 Cache Status:', {
-        isWarm: cacheStatus.isWarm,
-        isReady: cacheStatus.hasRAGService,
-        cacheAge: Math.round(cacheStatus.cacheAge / 1000) + 's',
-        isValid: cacheStatus.isValid
-      });
-    }
-  }, [cacheStatus]);
 
   const formatTimeAgo = (date: Date) => {
     const now = new Date();
@@ -119,17 +91,17 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     try {
       const userId = user.id;
       const documentId = documentToDelete.$id;
-      
+
       // Close modal immediately
       setShowDeleteModal(false);
       setDocumentToDelete(null);
-      
+
       // Delete from database
       await ragService.deleteDocument(userId, documentId);
-      
+
       // Reload documents to reflect changes
       await loadUserDocuments();
-      
+
     } catch (error) {
       console.error('Error deleting document:', error);
       Alert.alert('Error', 'Failed to delete document. Please try again.');
@@ -225,7 +197,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
       if (error.message.includes('429') || error.message.includes('Rate limit')) {
         errorTitle = 'Rate Limit Reached';
-        errorMessage = 'VoyageAI API limit reached. Current limits:\n\n' +
+        errorMessage = 'VoyageAI API limwit reached. Current limits:\n\n' +
           '• Tier 1: 2,000 requests/minute\n' +
           '• Tier 2: 4,000 requests/minute ($100+ spent)\n' +
           '• Tier 3: 6,000 requests/minute ($1000+ spent)\n\n' +
@@ -251,33 +223,125 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     setUploading(true);
 
     try {
-      const result = await DocumentPicker.pickSingle({
-        type: [DocumentPicker.types.pdf]
+      console.log("Starting PDF document picker...");
+      
+      // Use document picker to select PDF from device
+      const selectedDocument = await DocumentPicker.pickSingle({
+        type: [DocumentPicker.types.pdf],
       });
 
-      console.log('Extraction result:', result);
-      console.log('File URI:', result?.uri);
-      console.log("Starting PDF text extraction...");
+      if (!selectedDocument) {
+        // User cancelled the picker
+        setUploading(false);
+        return;
+      }
 
-      const response = await PdfTextExtractor.extractPdfText(result?.uri || '');
-      console.log('Extraction response:', response);
+      console.log("Selected document:", selectedDocument);
+      
+      // Copy the content URI to internal storage
+      const internalPath = await PdfTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
+      console.log("Document copied to internal storage:", internalPath);
+      
+      // Get the document name
+      const documentName = selectedDocument.name || 'Selected PDF';
+      
+      const { NativeModules } = require('react-native');
+      let response = null;
+      let extractionMethod = '';
 
-      if (!response.success || !response.text) {
-        throw new Error(response.error || 'Failed to extract text from PDF');
+      // Step 1: Test with fast OCR to determine extraction quality
+      try {
+        console.log("Starting fast OCR extraction (all pages)...");
+        const fastOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithFastOCR(internalPath);
+        console.log("Fast OCR result:", fastOCRResult);
+        
+        if (fastOCRResult && fastOCRResult.text && fastOCRResult.text.trim().length > 50) {
+          console.log("✅ Fast OCR successful - using result");
+          response = fastOCRResult;
+          extractionMethod = `Fast OCR Extraction (${fastOCRResult.totalPages || 'All'} pages)`;
+          
+          // Also try full OCR in the background to compare quality
+          try {
+            console.log("Also attempting full OCR for comparison...");
+            const fullOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
+            console.log("Full OCR result:", fullOCRResult);
+            
+            if (fullOCRResult && fullOCRResult.text && fullOCRResult.text.trim().length > fastOCRResult.text.trim().length * 1.5) {
+              // Full OCR got significantly more text (at least 50% more)
+              response = fullOCRResult;
+              extractionMethod = 'Full OCR Extraction (All pages)';
+              console.log("✅ Full OCR got significantly more text, using it instead!");
+            } else {
+              console.log("⚠️ Full OCR didn't improve significantly, keeping fast OCR result");
+            }
+          } catch (fullOCRError) {
+            console.log("Full OCR failed, keeping successful fast OCR result:", fullOCRError);
+          }
+        } else {
+          console.log("Fast OCR failed or insufficient text, trying full OCR directly...");
+          // Try full OCR directly
+          response = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
+          console.log("Direct full OCR result:", response);
+          extractionMethod = 'Direct OCR Extraction (All pages)';
+          if (response && response.text && response.text.trim().length > 10) {
+            console.log("✅ Direct OCR extraction successful!");
+          } else {
+            console.log("❌ Direct OCR also failed or insufficient text");
+          }
+        }
+      } catch (testError) {
+        console.log('❌ OCR extraction failed:', testError);
+        console.log('This might be a complex PDF or contain only images');
+      }
+
+      // Check if we got any meaningful text
+      console.log("Final extraction check:", { 
+        hasResponse: !!response, 
+        hasText: !!response?.text, 
+        textLength: response?.text?.trim().length || 0,
+        extractionMethod 
+      });
+
+      if (!response || !response.text || response.text.trim().length < 10) {
+        // Be more lenient with text length requirement
+        if (response?.text && response.text.trim().length > 0) {
+          console.log("⚠️ Found some text but it's very short:", response.text.trim());
+          // Still try to process it if we found any text at all
+        } else {
+          throw new Error(`PDF extraction failed. The document may be corrupted, password-protected, contain only images, or be in an unsupported format.\n\nExtraction method tried: ${extractionMethod || 'Multiple methods'}\nFile: ${documentName}`);
+        }
       }
 
       // Process document through RAG pipeline
       if (ragService && response.text) {
         await processDocumentThroughRAG(
-          result?.name || 'Uploaded Document', 
-          response.text, 
-          result?.uri || ''
+          documentName,
+          response.text,
+          internalPath
         );
       } else {
         Alert.alert('Error', 'Document processing service not available. Please try again.');
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to extract PDF text');
+      console.error('PDF upload error:', e);
+      
+      let errorMessage = 'Failed to process PDF';
+      
+      if (e?.message?.includes('User cancelled') || e?.message?.includes('CANCELLED')) {
+        // Don't show error for user cancellation
+        setUploading(false);
+        return;
+      } else if (e?.message?.includes('No application found')) {
+        errorMessage = 'No PDF viewer app found on your device. Please install a PDF app to select documents.';
+      } else if (e?.message?.includes('Permission denied')) {
+        errorMessage = 'Permission denied. Please grant file access permission and try again.';
+      } else if (e?.message?.includes('Failed to copy content URI')) {
+        errorMessage = 'Unable to access the selected file. Please try selecting a different PDF or ensure the file is accessible.';
+      } else {
+        errorMessage = e?.message || errorMessage;
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setUploading(false);
     }
@@ -302,8 +366,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
-        <SettingsScreen 
-          user={user} 
+        <SettingsScreen
+          user={user}
           onBack={() => setCurrentScreen('dashboard')}
           onLogout={onLogout}
         />
@@ -315,9 +379,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   if (currentScreen === 'pdf') {
     return (
       <SafeAreaView style={styles.container}>
-        <PdfScreen 
-          userId={user.id} 
-          selectedDocument={selectedDocument} 
+        <PdfScreen
+          userId={user.id}
+          selectedDocument={selectedDocument}
           ragService={ragService}
           userDocuments={userDocuments}
           onBack={() => setCurrentScreen('dashboard')}
@@ -415,6 +479,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           </View>
         </ScrollView>
 
+
         {/* Fixed Create New Button at Bottom */}
         <View style={styles.bottomContainer}>
           <TouchableOpacity
@@ -481,7 +546,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
               <View style={styles.sourceOptions}>
                 <TouchableOpacity style={styles.sourceOption} onPress={handlePdfUpload}>
-                  <Text style={styles.sourceOptionText}>PDF</Text>
+                  <Text style={styles.sourceOptionText}>Upload PDF</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.sourceOption} onPress={handleWebsite}>

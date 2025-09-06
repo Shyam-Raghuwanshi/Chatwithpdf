@@ -117,6 +117,9 @@ dependencies {
     // Appwrite SDK for authentication
     implementation 'io.appwrite:sdk-for-android:6.0.0'
 
+    // Google ML Kit Text Recognition (much faster than Tesseract)
+    implementation 'com.google.mlkit:text-recognition:16.0.0'
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

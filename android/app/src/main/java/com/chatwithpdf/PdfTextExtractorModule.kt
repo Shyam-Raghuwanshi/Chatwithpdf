@@ -1,377 +1,328 @@
 package com.chatwithpdf
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import com.facebook.react.bridge.*
-import com.itextpdf.text.pdf.PdfReader
-import com.itextpdf.text.pdf.parser.PdfReaderContentParser
-import com.itextpdf.text.pdf.parser.SimpleTextExtractionStrategy
-import com.itextpdf.text.pdf.parser.TextExtractionStrategy
-import java.io.*
-import java.util.*
-import org.json.JSONObject
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.File
+import java.util.concurrent.CountDownLatch
 
 class PdfTextExtractorModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+
+    companion object {
+        private const val TAG = "PdfTextExtractorModule"
+    }
 
     override fun getName(): String {
         return "PdfTextExtractorModule"
     }
 
     @ReactMethod
-    fun extractPdfText(pdfPath: String, promise: Promise) {
+    fun extractTextWithTextricatorApproach(pdfPath: String, promise: Promise) {
+        Log.d(TAG, "Starting Textricator-inspired extraction for: $pdfPath")
+        
         try {
-            // Validate input
-            if (pdfPath.isEmpty()) {
-                val errorJson = createErrorResponse("PDF path cannot be empty")
-                promise.resolve(errorJson)
-                return
-            }
-
-            // Extract text from PDF using appropriate method
-            val extractedText = if (pdfPath.startsWith("content://")) {
-                // Handle content URI
-                try {
-                    val uri = Uri.parse(pdfPath)
-                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot open content URI: $pdfPath")
-                    extractTextFromPdfStream(inputStream)
-                } catch (e: Exception) {
-                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
-                    promise.resolve(errorJson)
-                    return
-                }
-            } else {
-                // Handle file path
-                val file = File(pdfPath)
-                if (!file.exists()) {
-                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                    promise.resolve(errorJson)
-                    return
-                }
-                extractTextFromPdf(pdfPath)
-            }
-
-            // Extract metadata with a separate stream/file access
-            val metadata = if (pdfPath.startsWith("content://")) {
-                try {
-                    val uri = Uri.parse(pdfPath)
-                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot open content URI: $pdfPath")
-                    extractMetadataFromStream(inputStream, pdfPath)
-                } catch (e: Exception) {
-                    JSONObject().apply { put("error", "Could not extract metadata: ${e.message}") }
-                }
-            } else {
-                extractMetadata(pdfPath)
-            }
+            val extractor = TextricatorInspiredExtractor(reactApplicationContext)
+            val result = extractor.extractTextWithMultipleStrategies(pdfPath)
             
-            // Create success response
-            val result = JSONObject().apply {
-                put("success", true)
-                put("text", extractedText)
-                put("metadata", metadata)
-                put("error", "")
+            if (result.success) {
+                val responseMap = Arguments.createMap()
+                responseMap.putString("text", result.text)
+                responseMap.putDouble("processingTime", result.processingTime.toDouble())
+                responseMap.putInt("pageCount", result.pageCount)
+                responseMap.putString("extractionMethod", result.extractionMethod)
+                responseMap.putInt("segmentCount", result.segments.size)
+                
+                // Add segment details for advanced use cases
+                val segmentsArray = Arguments.createArray()
+                result.segments.take(10).forEach { segment -> // Limit to first 10 for performance
+                    val segmentMap = Arguments.createMap()
+                    segmentMap.putString("text", segment.text)
+                    segmentMap.putDouble("x", segment.x.toDouble())
+                    segmentMap.putDouble("y", segment.y.toDouble())
+                    segmentMap.putDouble("width", segment.width.toDouble())
+                    segmentMap.putDouble("height", segment.height.toDouble())
+                    segmentMap.putInt("page", segment.page)
+                    segmentMap.putDouble("confidence", segment.confidence.toDouble())
+                    segmentsArray.pushMap(segmentMap)
+                }
+                responseMap.putArray("segments", segmentsArray)
+                
+                Log.d(TAG, "Textricator extraction completed: ${result.text.length} chars, ${result.segments.size} segments, ${result.processingTime}ms")
+                promise.resolve(responseMap)
+            } else {
+                promise.reject("TEXTRICATOR_ERROR", result.error ?: "Textricator extraction failed")
             }
-            
-            promise.resolve(result.toString())
             
         } catch (e: Exception) {
-            val errorJson = createErrorResponse("Error extracting PDF text: ${e.message}")
-            promise.resolve(errorJson)
+            Log.e(TAG, "Error during Textricator extraction", e)
+            promise.reject("TEXTRICATOR_ERROR", "Failed to extract text: ${e.message}", e)
         }
     }
 
     @ReactMethod
-    fun extractPdfTextFromPage(pdfPath: String, pageNumber: Int, promise: Promise) {
+    fun extractTextWithFastOCR(pdfPath: String, promise: Promise) {
+        Log.d(TAG, "Starting FAST OCR extraction for: $pdfPath")
+        
         try {
-            // Validate input
-            if (pdfPath.isEmpty()) {
-                val errorJson = createErrorResponse("PDF path cannot be empty")
-                promise.resolve(errorJson)
-                return
-            }
-
-            // Extract text from specific page
-            val extractedText = if (pdfPath.startsWith("content://")) {
-                // Handle content URI
-                try {
-                    val uri = Uri.parse(pdfPath)
-                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot open content URI: $pdfPath")
-                    extractTextFromSpecificPageStream(inputStream, pageNumber)
-                } catch (e: Exception) {
-                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
-                    promise.resolve(errorJson)
-                    return
-                }
+            val extractor = TextricatorInspiredExtractor(reactApplicationContext)
+            
+            // First, get PDF info to determine page count
+            val file = File(pdfPath)
+            val fileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val pdfRenderer = PdfRenderer(fileDescriptor)
+            val totalPages = pdfRenderer.pageCount
+            pdfRenderer.close()
+            fileDescriptor.close()
+            
+            // Process ALL pages - no limits!
+            Log.d(TAG, "PDF has $totalPages pages, processing ALL pages (no limit)")
+            
+            val result = extractor.extractTextWithLimitedPages(pdfPath, maxPages = totalPages)
+            
+            if (result.success) {
+                val responseMap = Arguments.createMap()
+                responseMap.putString("text", result.text)
+                responseMap.putDouble("processingTime", result.processingTime.toDouble())
+                responseMap.putInt("pageCount", result.pageCount)
+                responseMap.putString("extractionMethod", "Fast OCR (ALL $totalPages pages)")
+                responseMap.putInt("segmentCount", result.segments.size)
+                responseMap.putInt("totalPages", totalPages)
+                
+                Log.d(TAG, "FAST OCR completed successfully: ${result.text.length} chars, ${result.processingTime}ms")
+                promise.resolve(responseMap)
             } else {
-                // Handle file path
-                val file = File(pdfPath)
-                if (!file.exists()) {
-                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                    promise.resolve(errorJson)
-                    return
-                }
-                extractTextFromSpecificPage(pdfPath, pageNumber)
+                Log.e(TAG, "FAST OCR failed: ${result.error}")
+                promise.reject("FAST_OCR_ERROR", result.error)
             }
-
-            // Extract metadata with a separate stream/file access
-            val metadata = if (pdfPath.startsWith("content://")) {
-                try {
-                    val uri = Uri.parse(pdfPath)
-                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot open content URI: $pdfPath")
-                    extractMetadataFromStream(inputStream, pdfPath)
-                } catch (e: Exception) {
-                    JSONObject().apply { put("error", "Could not extract metadata: ${e.message}") }
-                }
-            } else {
-                extractMetadata(pdfPath)
-            }
-            
-            // Create success response
-            val result = JSONObject().apply {
-                put("success", true)
-                put("text", extractedText)
-                put("metadata", metadata)
-                put("page", pageNumber)
-                put("error", "")
-            }
-            
-            promise.resolve(result.toString())
-            
         } catch (e: Exception) {
-            val errorJson = createErrorResponse("Error extracting PDF text from page $pageNumber: ${e.message}")
-            promise.resolve(errorJson)
+            Log.e(TAG, "FAST OCR exception", e)
+            promise.reject("FAST_OCR_EXCEPTION", "Fast OCR failed: ${e.message}")
         }
     }
 
     @ReactMethod
-    fun getPdfInfo(pdfPath: String, promise: Promise) {
+    fun extractTextWithExtendedOCR(pdfPath: String, maxPages: Int, promise: Promise) {
+        Log.d(TAG, "Starting EXTENDED OCR extraction for: $pdfPath")
+        
         try {
-            // Extract metadata 
-            val metadata = if (pdfPath.startsWith("content://")) {
-                // Handle content URI
-                try {
-                    val uri = Uri.parse(pdfPath)
-                    val inputStream = reactApplicationContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot open content URI: $pdfPath")
-                    extractMetadataFromStream(inputStream, pdfPath)
-                } catch (e: Exception) {
-                    val errorJson = createErrorResponse("Cannot access content URI: $pdfPath. Error: ${e.message}")
-                    promise.resolve(errorJson)
-                    return
-                }
+            val extractor = TextricatorInspiredExtractor(reactApplicationContext)
+            
+            // Get total page count
+            val file = File(pdfPath)
+            val fileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val pdfRenderer = PdfRenderer(fileDescriptor)
+            val totalPages = pdfRenderer.pageCount
+            pdfRenderer.close()
+            fileDescriptor.close()
+            
+            // Use the minimum of requested pages or total pages (process all if maxPages >= totalPages)
+            val pagesToProcess = minOf(maxPages, totalPages)
+            
+            Log.d(TAG, "PDF has $totalPages pages, processing $pagesToProcess pages")
+            
+            val result = extractor.extractTextWithLimitedPages(pdfPath, maxPages = pagesToProcess)
+            
+            if (result.success) {
+                val responseMap = Arguments.createMap()
+                responseMap.putString("text", result.text)
+                responseMap.putDouble("processingTime", result.processingTime.toDouble())
+                responseMap.putInt("pageCount", result.pageCount)
+                responseMap.putString("extractionMethod", "Extended OCR ($pagesToProcess/$totalPages pages)")
+                responseMap.putInt("segmentCount", result.segments.size)
+                responseMap.putInt("totalPages", totalPages)
+                
+                Log.d(TAG, "EXTENDED OCR completed successfully: ${result.text.length} chars, ${result.processingTime}ms")
+                promise.resolve(responseMap)
             } else {
-                // Handle file path
-                val file = File(pdfPath)
-                if (!file.exists()) {
-                    val errorJson = createErrorResponse("PDF file does not exist: $pdfPath")
-                    promise.resolve(errorJson)
-                    return
-                }
-                extractMetadata(pdfPath)
+                Log.e(TAG, "EXTENDED OCR failed: ${result.error}")
+                promise.reject("EXTENDED_OCR_ERROR", result.error)
             }
-            
-            val result = JSONObject().apply {
-                put("success", true)
-                put("metadata", metadata)
-                put("error", "")
-            }
-            
-            promise.resolve(result.toString())
-            
         } catch (e: Exception) {
-            val errorJson = createErrorResponse("Error getting PDF info: ${e.message}")
-            promise.resolve(errorJson)
+            Log.e(TAG, "EXTENDED OCR exception", e)
+            promise.reject("EXTENDED_OCR_EXCEPTION", "Extended OCR failed: ${e.message}")
         }
     }
 
-    private fun extractTextFromPdf(pdfPath: String): String {
-        val reader = PdfReader(pdfPath)
-        val parser = PdfReaderContentParser(reader)
-        val stringBuilder = StringBuilder()
-        
+    private fun extractTextFromBitmapWithMLKit(bitmap: Bitmap): String {
+        val latch = CountDownLatch(1)
+        var result = ""
+        var error: Exception? = null
+
         try {
-            for (i in 1..reader.numberOfPages) {
-                val strategy: TextExtractionStrategy = parser.processContent(i, SimpleTextExtractionStrategy())
-                val pageText = strategy.resultantText
-                if (pageText.isNotEmpty()) {
-                    stringBuilder.append(pageText)
-                    if (i < reader.numberOfPages) {
-                        stringBuilder.append("\n\n--- Page ${i + 1} ---\n\n")
-                    }
+            val image = InputImage.fromBitmap(bitmap, 0)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    result = visionText.text
+                    latch.countDown()
                 }
-            }
-        } finally {
-            reader.close()
-        }
-        
-        return stringBuilder.toString().trim()
-    }
-
-    private fun extractTextFromPdfStream(inputStream: InputStream): String {
-        val reader = PdfReader(inputStream)
-        val parser = PdfReaderContentParser(reader)
-        val stringBuilder = StringBuilder()
-        
-        try {
-            for (i in 1..reader.numberOfPages) {
-                val strategy: TextExtractionStrategy = parser.processContent(i, SimpleTextExtractionStrategy())
-                val pageText = strategy.resultantText
-                if (pageText.isNotEmpty()) {
-                    stringBuilder.append(pageText)
-                    if (i < reader.numberOfPages) {
-                        stringBuilder.append("\n\n--- Page ${i + 1} ---\n\n")
-                    }
+                .addOnFailureListener { exception ->
+                    error = exception
+                    latch.countDown()
                 }
-            }
-        } finally {
-            reader.close()
-            inputStream.close()
-        }
-        
-        return stringBuilder.toString().trim()
-    }
 
-    private fun extractTextFromSpecificPage(pdfPath: String, pageNumber: Int): String {
-        val reader = PdfReader(pdfPath)
-        
-        try {
-            if (pageNumber < 1 || pageNumber > reader.numberOfPages) {
-                throw IllegalArgumentException("Page number $pageNumber is out of range. PDF has ${reader.numberOfPages} pages.")
-            }
-            
-            val parser = PdfReaderContentParser(reader)
-            val strategy: TextExtractionStrategy = parser.processContent(pageNumber, SimpleTextExtractionStrategy())
-            return strategy.resultantText.trim()
-        } finally {
-            reader.close()
-        }
-    }
+            // Wait for ML Kit to complete (with timeout)
+            latch.await()
 
-    private fun extractTextFromSpecificPageStream(inputStream: InputStream, pageNumber: Int): String {
-        val reader = PdfReader(inputStream)
-        
-        try {
-            if (pageNumber < 1 || pageNumber > reader.numberOfPages) {
-                throw IllegalArgumentException("Page number $pageNumber is out of range. PDF has ${reader.numberOfPages} pages.")
-            }
-            
-            val parser = PdfReaderContentParser(reader)
-            val strategy: TextExtractionStrategy = parser.processContent(pageNumber, SimpleTextExtractionStrategy())
-            return strategy.resultantText.trim()
-        } finally {
-            reader.close()
-            inputStream.close()
-        }
-    }
+            error?.let { throw it }
 
-    private fun extractMetadata(pdfPath: String): JSONObject {
-        val reader = PdfReader(pdfPath)
-        val metadata = JSONObject()
-        
-        try {
-            // Basic PDF information
-            metadata.put("numberOfPages", reader.numberOfPages)
-            metadata.put("pdfVersion", reader.pdfVersion.toString())
-            metadata.put("fileSize", File(pdfPath).length())
-            
-            // PDF document info
-            val info = reader.info
-            if (info != null) {
-                info["Title"]?.let { metadata.put("title", it) }
-                info["Author"]?.let { metadata.put("author", it) }
-                info["Subject"]?.let { metadata.put("subject", it) }
-                info["Keywords"]?.let { metadata.put("keywords", it) }
-                info["Creator"]?.let { metadata.put("creator", it) }
-                info["Producer"]?.let { metadata.put("producer", it) }
-                info["CreationDate"]?.let { metadata.put("creationDate", it) }
-                info["ModDate"]?.let { metadata.put("modificationDate", it) }
-            }
-            
-            // Security information
-            metadata.put("isEncrypted", reader.isEncrypted())
-            if (reader.isEncrypted()) {
-                metadata.put("securityType", "Password Protected")
-            }
-            
         } catch (e: Exception) {
-            metadata.put("error", "Could not extract metadata: ${e.message}")
-        } finally {
-            reader.close()
+            Log.e(TAG, "ML Kit OCR failed", e)
+            throw e
         }
-        
-        return metadata
+
+        return result
     }
 
-    private fun extractMetadataFromStream(inputStream: InputStream, originalPath: String): JSONObject {
-        val reader = PdfReader(inputStream)
-        val metadata = JSONObject()
-        
-        try {
-            // Basic PDF information
-            metadata.put("numberOfPages", reader.numberOfPages)
-            metadata.put("pdfVersion", reader.pdfVersion.toString())
-            metadata.put("source", if (originalPath.startsWith("content://")) "Content URI" else "File Path")
-            metadata.put("originalPath", originalPath)
-            
-            // PDF document info
-            val info = reader.info
-            if (info != null) {
-                info["Title"]?.let { metadata.put("title", it) }
-                info["Author"]?.let { metadata.put("author", it) }
-                info["Subject"]?.let { metadata.put("subject", it) }
-                info["Keywords"]?.let { metadata.put("keywords", it) }
-                info["Creator"]?.let { metadata.put("creator", it) }
-                info["Producer"]?.let { metadata.put("producer", it) }
-                info["CreationDate"]?.let { metadata.put("creationDate", it) }
-                info["ModDate"]?.let { metadata.put("modificationDate", it) }
-            }
-            
-            // Security information
-            metadata.put("isEncrypted", reader.isEncrypted())
-            if (reader.isEncrypted()) {
-                metadata.put("securityType", "Password Protected")
-            }
-            
-        } catch (e: Exception) {
-            metadata.put("error", "Could not extract metadata: ${e.message}")
-        } finally {
-            reader.close()
-            inputStream.close()
-        }
-        
-        return metadata
-    }
-
-    private fun createErrorResponse(errorMessage: String): String {
-        val errorJson = JSONObject().apply {
-            put("success", false)
-            put("error", errorMessage)
-            put("text", "")
-            put("metadata", JSONObject())
-        }
-        return errorJson.toString()
+    @ReactMethod
+    fun extractTextFromPdf(pdfPath: String, promise: Promise) {
+        // Delegate to the fast OCR method
+        extractTextWithFastOCR(pdfPath, promise)
     }
 
     @ReactMethod
     fun copyAssetToInternalStorage(assetFileName: String, promise: Promise) {
         try {
             val context = reactApplicationContext
-            val inputStream = context.assets.open(assetFileName)
-            val outputFile = File(context.filesDir, assetFileName)
+            val assetManager = context.assets
+            
+            // Create internal storage directory
+            val internalDir = File(context.filesDir, "pdfs")
+            if (!internalDir.exists()) {
+                internalDir.mkdirs()
+            }
             
             // Copy asset to internal storage
-            val outputStream = FileOutputStream(outputFile)
-            inputStream.use { input ->
-                outputStream.use { output ->
-                    input.copyTo(output)
+            val outputFile = File(internalDir, assetFileName)
+            assetManager.open(assetFileName).use { inputStream ->
+                outputFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
                 }
             }
             
+            Log.d(TAG, "Asset copied to: ${outputFile.absolutePath}")
             promise.resolve(outputFile.absolutePath)
+            
         } catch (e: Exception) {
+            Log.e(TAG, "Error copying asset to internal storage", e)
             promise.reject("COPY_ERROR", "Failed to copy asset: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun createTestPdfAndExtract(promise: Promise) {
+        Log.d(TAG, "Creating test PDF for OCR verification")
+        
+        try {
+            val testPdfPath = createSimpleTestPdf()
+            Log.d(TAG, "Test PDF created at: $testPdfPath")
+            
+            // Extract text from the test PDF
+            val extractor = TextricatorInspiredExtractor(reactApplicationContext)
+            val result = extractor.extractTextWithMultipleStrategies(testPdfPath)
+            
+            val responseMap = Arguments.createMap()
+            responseMap.putString("testPdfPath", testPdfPath)
+            responseMap.putBoolean("success", result.success)
+            responseMap.putString("text", result.text)
+            responseMap.putString("extractionMethod", result.extractionMethod)
+            responseMap.putInt("pageCount", result.pageCount)
+            responseMap.putDouble("processingTime", result.processingTime.toDouble())
+            
+            if (result.success) {
+                Log.d(TAG, "Test PDF OCR successful: ${result.text.length} chars extracted")
+            } else {
+                Log.e(TAG, "Test PDF OCR failed: ${result.error}")
+                responseMap.putString("error", result.error)
+            }
+            
+            promise.resolve(responseMap)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating/testing PDF", e)
+            promise.reject("TEST_PDF_ERROR", "Failed to create test PDF: ${e.message}", e)
+        }
+    }
+
+    private fun createSimpleTestPdf(): String {
+        val outputDir = File(reactApplicationContext.filesDir, "test_pdfs")
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+        
+        val outputFile = File(outputDir, "simple_test.pdf")
+        
+        // Create a simple PDF with text
+        val document = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 size
+        val page = document.startPage(pageInfo)
+        
+        val canvas = page.canvas
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 24f
+            isAntiAlias = true
+        }
+        
+        // Draw some test text
+        canvas.drawText("This is a simple test document.", 50f, 100f, paint)
+        canvas.drawText("It contains multiple lines of text.", 50f, 150f, paint)
+        canvas.drawText("The text should be easy to read.", 50f, 200f, paint)
+        canvas.drawText("OCR should extract this content.", 50f, 250f, paint)
+        canvas.drawText("Testing 123 numbers and symbols!", 50f, 300f, paint)
+        
+        document.finishPage(page)
+        
+        // Write to file
+        outputFile.outputStream().use { outputStream ->
+            document.writeTo(outputStream)
+        }
+        document.close()
+        
+        Log.d(TAG, "Simple test PDF created: ${outputFile.absolutePath}")
+        return outputFile.absolutePath
+    }
+
+    @ReactMethod
+    fun copyContentUriToInternalStorage(uriString: String, promise: Promise) {
+        try {
+            val context = reactApplicationContext
+            val uri = Uri.parse(uriString)
+            
+            // Create internal storage directory
+            val internalDir = File(context.filesDir, "selected_pdfs")
+            if (!internalDir.exists()) {
+                internalDir.mkdirs()
+            }
+            
+            // Generate a unique filename
+            val timestamp = System.currentTimeMillis()
+            val outputFile = File(internalDir, "selected_pdf_$timestamp.pdf")
+            
+            // Copy content URI to internal storage
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                outputFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            
+            Log.d(TAG, "Content URI copied to: ${outputFile.absolutePath}")
+            promise.resolve(outputFile.absolutePath)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error copying content URI to internal storage", e)
+            promise.reject("COPY_URI_ERROR", "Failed to copy content URI: ${e.message}", e)
         }
     }
 }

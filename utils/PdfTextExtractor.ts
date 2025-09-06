@@ -76,6 +76,19 @@ export class PdfTextExtractor {
   }
 
   /**
+   * Copy PDF from content URI to internal storage
+   * @param contentUri - Content URI from document picker (e.g., 'content://...')
+   * @returns Promise with the copied file path
+   */
+  static async copyContentUriToInternalStorage(contentUri: string): Promise<string> {
+    try {
+      return await PdfTextExtractorModule.copyContentUriToInternalStorage(contentUri);
+    } catch (error) {
+      throw new Error(`Failed to copy content URI: ${error}`);
+    }
+  }
+
+  /**
    * Extract text from a PDF asset file
    * @param assetFileName - Name of the PDF asset file
    * @returns Promise with extraction result
