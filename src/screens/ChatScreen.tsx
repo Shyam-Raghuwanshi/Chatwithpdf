@@ -555,9 +555,6 @@ const ChatScreen: React.FC<Props> = ({
       {/* User Message */}
       <View style={styles.userMessageContainer}>
         <Text style={styles.userMessage}>{item.message}</Text>
-        <Text style={styles.timestamp}>
-          {item.timestamp.toLocaleTimeString()}
-        </Text>
       </View>
 
       {/* AI Response */}
@@ -1365,12 +1362,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   userMessage: {
-    backgroundColor: '#007AFF',
     color: 'white',
     padding: 12,
     borderRadius: 18,
     borderBottomRightRadius: 4,
-    maxWidth: '80%',
     fontSize: 16,
     lineHeight: 20,
   },
@@ -1378,12 +1373,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   aiMessage: {
-    backgroundColor: '#1c1c1e',
     color: 'white',
     padding: 12,
     borderRadius: 18,
     borderBottomLeftRadius: 4,
-    maxWidth: '85%',
     fontSize: 16,
     lineHeight: 22,
   },

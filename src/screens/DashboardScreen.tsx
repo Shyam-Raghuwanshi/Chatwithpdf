@@ -12,6 +12,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  TextInput,
 } from 'react-native';
 import auth from '../../utils/AppwriteAuth';
 import PdfScreen from './PdfScreen';
@@ -21,6 +22,7 @@ import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
+import { FONT_FAMILY, TEXT_STYLES } from '../../utils/FontConfig';
 
 import DocumentPicker from '../components/DocumentPicker';
 interface DashboardScreenProps {
@@ -31,7 +33,7 @@ interface DashboardScreenProps {
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
 
   const [loading, setLoading] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings' | 'search'>('dashboard');
   const [showDropdown, setShowDropdown] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -39,8 +41,12 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [deletingDocument, setDeletingDocument] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchScreen, setShowSearchScreen] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const searchSlideAnim = useRef(new Animated.Value(Dimensions.get('window').width)).current;
   const screenHeight = Dimensions.get('window').height;
+  const screenWidth = Dimensions.get('window').width;
 
   // Use ultra-fast background services
   const serviceCallTime = Date.now();
@@ -69,6 +75,39 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const handleProfilePress = () => {
     setCurrentScreen('settings');
   };
+
+  const handleSearchPress = () => {
+    setShowSearchScreen(true);
+    Animated.timing(searchSlideAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleSearchClose = () => {
+    Animated.timing(searchSlideAnim, {
+      toValue: screenWidth,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowSearchScreen(false);
+      setSearchQuery('');
+    });
+  };
+
+  const handleSearchDocumentPress = async (document: Document) => {
+    // Close search screen first
+    handleSearchClose();
+    // Set the selected document and navigate to chat
+    setSelectedDocument(document);
+    setCurrentScreen('pdf');
+  };
+
+  // Filter documents based on search query
+  const filteredDocuments = userDocuments.filter(doc =>
+    doc.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleDocumentPress = async (document: Document) => {
     // Set the selected document and navigate to chat
@@ -400,7 +439,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               <Text style={styles.title}>ChatWithLLm</Text>
             </View>
             <View style={styles.userInfo}>
-              <TouchableOpacity style={styles.search} onPress={handleProfilePress}>
+              <TouchableOpacity style={styles.search} onPress={handleSearchPress}>
                 <Image
                   source={require('../../assets/icons/search.png')}
                   style={{ width: 20, height: 20 }}
@@ -604,6 +643,110 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           </View>
         </View>
       </Modal>
+
+      {/* Search Screen Modal */}
+      <Modal
+        visible={showSearchScreen}
+        transparent={true}
+        animationType="none"
+        onRequestClose={handleSearchClose}
+      >
+        <View style={styles.searchModalOverlay}>
+          <Animated.View
+            style={[
+              styles.searchContainer,
+              {
+                transform: [
+                  {
+                    translateX: searchSlideAnim,
+                  },
+                ],
+              },
+            ]}
+          >
+            <SafeAreaView style={styles.searchContent}>
+              {/* Search Header */}
+              <View style={styles.searchHeader}>
+                <TouchableOpacity onPress={handleSearchClose} style={styles.searchBackButton}>
+                  <Image
+                    source={require('../../assets/icons/back-arrow.png')}
+                    style={{ width: 20, height: 20 }}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+                <View style={styles.searchInputContainer}>
+                  <Image
+                    source={require('../../assets/icons/search.png')}
+                    style={styles.searchInputIcon}
+                    resizeMode="contain"
+                  />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search documents..."
+                    placeholderTextColor="#666"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    autoFocus={true}
+                  />
+                </View>
+              </View>
+
+              {/* Search Results */}
+              <ScrollView style={styles.searchResults} contentContainerStyle={styles.searchResultsContainer}>
+                {searchQuery.trim() === '' ? (
+                  <View style={styles.searchEmptyState}>
+                    <Image
+                      source={require('../../assets/icons/search.png')}
+                      style={styles.searchEmptyIcon}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.searchEmptyTitle}>Search Your Documents</Text>
+                    <Text style={styles.searchEmptySubtitle}>
+                      Start typing to find your documents
+                    </Text>
+                  </View>
+                ) : filteredDocuments.length > 0 ? (
+                  <>
+                    <Text style={styles.searchResultsHeader}>
+                      {filteredDocuments.length} result{filteredDocuments.length !== 1 ? 's' : ''} found
+                    </Text>
+                    {filteredDocuments.map((doc) => (
+                      <TouchableOpacity
+                        key={doc.$id}
+                        style={styles.searchDocumentCard}
+                        onPress={() => handleSearchDocumentPress(doc)}
+                      >
+                        <View style={styles.searchDocumentInfo}>
+                          <Text style={styles.searchDocumentTitle} numberOfLines={2}>
+                            {doc.title}
+                          </Text>
+                          <Text style={styles.searchDocumentMeta}>
+                            1 source • {formatTimeAgo(doc.createdAt)}
+                          </Text>
+                        </View>
+                        <View style={styles.searchDocumentIcon}>
+                          <Image
+                            source={require('../../assets/icons/file.png')}
+                            style={{ width: 24, height: 24 }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                ) : (
+                  <View style={styles.searchNoResults}>
+                    <Text style={styles.searchNoResultsTitle}>No documents found</Text>
+                    <Text style={styles.searchNoResultsSubtitle}>
+                      Try searching with different keywords
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+            </SafeAreaView>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -642,7 +785,7 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 14,
     color: '#007AFF',
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   header: {
     flexDirection: 'row',
@@ -654,7 +797,7 @@ const styles = StyleSheet.create({
   title: {
     color: "white",
     fontSize: 20,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
   },
   userInfo: {
     flexDirection: 'row',
@@ -680,18 +823,19 @@ const styles = StyleSheet.create({
   avatarText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
   },
   userDetails: {
     flex: 1,
   },
   welcomeText: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
     color: '#999',
   },
   userName: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
     color: 'white',
     marginBottom: 2,
   },
@@ -704,7 +848,7 @@ const styles = StyleSheet.create({
   logoutText: {
     color: 'white',
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   mainContent: {
     flex: 1,
@@ -721,12 +865,12 @@ const styles = StyleSheet.create({
   tabText: {
     color: '#999',
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: FONT_FAMILY.medium,
   },
   tabTextActive: {
     color: 'white',
     fontSize: 30,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   documentsContainer: {
     flex: 1,
@@ -740,11 +884,13 @@ const styles = StyleSheet.create({
   loadingText: {
     color: '#999',
     fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
     marginTop: 12,
   },
   errorText: {
     color: '#ff3b30',
     fontSize: 14,
+    fontFamily: FONT_FAMILY.regular,
     marginTop: 8,
     textAlign: 'center',
   },
@@ -768,12 +914,13 @@ const styles = StyleSheet.create({
   documentTitle: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
     marginBottom: 4,
   },
   documentMeta: {
     color: '#999',
     fontSize: 14,
+    fontFamily: FONT_FAMILY.regular,
   },
   documentAction: {
     padding: 8,
@@ -801,13 +948,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
     color: 'white',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
     color: '#999',
     textAlign: 'center',
     lineHeight: 22,
@@ -891,7 +1039,7 @@ const styles = StyleSheet.create({
   createNewButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   buttonLoading: {
     flexDirection: 'row',
@@ -912,7 +1060,7 @@ const styles = StyleSheet.create({
   documentsButtonText: {
     color: '#999',
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: FONT_FAMILY.medium,
   },
   modalOverlay: {
     flex: 1,
@@ -946,7 +1094,7 @@ const styles = StyleSheet.create({
   closeButtonText: {
     color: '#999',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
   },
   addSourceIcon: {
     width: 60,
@@ -963,12 +1111,13 @@ const styles = StyleSheet.create({
   },
   dropdownTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
     color: 'white',
     marginBottom: 8,
   },
   dropdownSubtitle: {
     fontSize: 14,
+    fontFamily: FONT_FAMILY.regular,
     color: '#999',
     textAlign: 'center',
     lineHeight: 20,
@@ -989,7 +1138,7 @@ const styles = StyleSheet.create({
   sourceOptionText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '500',
+    fontFamily: FONT_FAMILY.medium,
   },
   // Delete Modal Styles
   deleteModalOverlay: {
@@ -1010,13 +1159,14 @@ const styles = StyleSheet.create({
   },
   deleteModalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontFamily: FONT_FAMILY.bold,
     color: 'white',
     marginBottom: 12,
     textAlign: 'center',
   },
   deleteModalMessage: {
     fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
     color: '#999',
     marginBottom: 24,
     textAlign: 'center',
@@ -1040,7 +1190,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   deleteButton: {
     backgroundColor: '#ff3b30',
@@ -1048,7 +1198,140 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.semiBold,
+  },
+  // Search Screen Styles
+  searchModalOverlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  searchContainer: {
+    flex: 1,
+    backgroundColor: '#1c1c1e',
+    width: '100%',
+  },
+  searchContent: {
+    flex: 1,
+  },
+  searchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2c2c2e',
+    backgroundColor: '#1c1c1e',
+  },
+  searchBackButton: {
+    padding: 8,
+    marginRight: 12,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2c2c2e',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInputIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 8,
+    tintColor: '#666',
+  },
+  searchInput: {
+    flex: 1,
+    color: 'white',
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
+    paddingVertical: 4,
+  },
+  searchResults: {
+    flex: 1,
+  },
+  searchResultsContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+  },
+  searchEmptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  searchEmptyIcon: {
+    width: 48,
+    height: 48,
+    marginBottom: 16,
+    tintColor: '#666',
+  },
+  searchEmptyTitle: {
+    fontSize: 20,
+    fontFamily: FONT_FAMILY.bold,
+    color: 'white',
+    marginBottom: 8,
+  },
+  searchEmptySubtitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#666',
+    textAlign: 'center',
+  },
+  searchResultsHeader: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#666',
+    marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  searchDocumentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  searchDocumentInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  searchDocumentTitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.semiBold,
+    color: 'white',
+    marginBottom: 4,
+  },
+  searchDocumentMeta: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#666',
+  },
+  searchDocumentIcon: {
+    padding: 8,
+  },
+  searchNoResults: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  searchNoResultsTitle: {
+    fontSize: 18,
+    fontFamily: FONT_FAMILY.bold,
+    color: 'white',
+    marginBottom: 8,
+  },
+  searchNoResultsSubtitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#666',
+    textAlign: 'center',
   },
 });
 
