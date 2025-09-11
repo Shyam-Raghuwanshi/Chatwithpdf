@@ -14,6 +14,7 @@ import {
   ScrollView,
   Dimensions,
   Modal,
+  Image,
 } from 'react-native';
 import RAGService, { ChatResponse, ProcessDocumentResult } from '../../utils/RAGService';
 import { Document, Chat } from '../../utils/AppwriteDB';
@@ -48,10 +49,10 @@ interface Props {
   chatId?: string; // Unique identifier for this chat session
 }
 
-const ChatScreen: React.FC<Props> = ({ 
-  userId, 
-  selectedDocument, 
-  onBack, 
+const ChatScreen: React.FC<Props> = ({
+  userId,
+  selectedDocument,
+  onBack,
   existingRAGService,
   userDocuments = [],
   onAddSource,
@@ -121,9 +122,9 @@ const ChatScreen: React.FC<Props> = ({
     isLoading: servicesLoading,
     isInitialized: servicesInitialized,
     getRagService
-  } = useServices({ 
+  } = useServices({
     autoInitialize: !existingRAGService, // Don't auto-initialize if external service provided
-    userId 
+    userId
   });
 
   // Use external RAG service if provided, otherwise use centralized one
@@ -136,10 +137,10 @@ const ChatScreen: React.FC<Props> = ({
     if (selectedDocument) {
       setChatSources([selectedDocument]);
     }
-    
+
     // Set available sources (excluding already selected ones and chat-specific documents)
     // Only show global documents in available sources, not documents from other chats
-    const available = userDocuments.filter(doc => 
+    const available = userDocuments.filter(doc =>
       (!selectedDocument || doc.$id !== selectedDocument.$id) && !doc.chatId
     );
     setAvailableSources(available);
@@ -158,16 +159,16 @@ const ChatScreen: React.FC<Props> = ({
   // Load documents specific to this chat
   const loadChatSpecificDocuments = async () => {
     if (!ragService) return;
-    
+
     try {
       console.log('Loading chat-specific documents for chat:', currentChatId);
       const chatDocuments = await ragService.getUserDocuments(userId, currentChatId);
-      
+
       // Add chat-specific documents to sources (excluding the already selected document)
-      const newChatSources = chatDocuments.filter(doc => 
+      const newChatSources = chatDocuments.filter(doc =>
         !selectedDocument || doc.$id !== selectedDocument.$id
       );
-      
+
       if (newChatSources.length > 0) {
         setChatSources(prev => {
           // Merge with existing sources, avoiding duplicates
@@ -188,7 +189,7 @@ const ChatScreen: React.FC<Props> = ({
       // Load chat history for this specific chat session
       // Use the primary document or chat ID for history retrieval
       const primaryDocumentId = chatSources.length > 0 ? chatSources[0].$id : selectedDocument?.$id;
-      
+
       const history = await ragService.getChatHistory(
         userId,
         primaryDocumentId
@@ -196,7 +197,7 @@ const ChatScreen: React.FC<Props> = ({
 
       // Convert new conversation-based format to ChatMessage format for UI
       const chatMessages: ChatMessage[] = [];
-      
+
       // Group messages by conversationId and process them
       const conversationMap = new Map<string, Chat[]>();
       history.forEach(chat => {
@@ -274,7 +275,7 @@ const ChatScreen: React.FC<Props> = ({
   // Handle removing a source from this chat
   const handleRemoveSourceFromChat = (source: Document) => {
     setChatSources(prev => prev.filter(s => s.$id !== source.$id));
-    
+
     // Only add back to available sources if it's a global document (not chat-specific)
     if (!source.chatId) {
       setAvailableSources(prev => [...prev, source]);
@@ -292,7 +293,7 @@ const ChatScreen: React.FC<Props> = ({
     if (!selectedSourceForAction) return;
 
     setShowSourceDropdown(false);
-    
+
     // Check if this is a chat-specific document (uploaded in this chat)
     if (selectedSourceForAction.chatId === currentChatId) {
       // This is a chat-specific document, delete it permanently
@@ -330,16 +331,16 @@ const ChatScreen: React.FC<Props> = ({
     setDeletingDocument(true);
     try {
       console.log('Deleting chat-specific document:', document.$id);
-      
+
       // Delete from database and vector store
       await ragService.deleteDocument(userId, document.$id);
-      
+
       // Remove from local state
       setChatSources(prev => prev.filter(s => s.$id !== document.$id));
-      
+
       console.log('Document deleted successfully');
       Alert.alert('Success', 'Document deleted successfully.');
-      
+
     } catch (error) {
       console.error('Error deleting document:', error);
       Alert.alert('Error', 'Failed to delete document. Please try again.');
@@ -352,7 +353,7 @@ const ChatScreen: React.FC<Props> = ({
   // Process document through RAG pipeline
   const processDocumentThroughRAG = async (title: string, text: string, fileUri: string) => {
     let serviceToUse = ragService;
-    
+
     // Get service if not available
     if (!serviceToUse) {
       try {
@@ -507,7 +508,7 @@ const ChatScreen: React.FC<Props> = ({
       // Chat with all sources in this chat, not just the selected document
       const documentIds = chatSources.map(source => source.$id).filter(Boolean) as string[];
       const primaryDocumentId = documentIds.length > 0 ? documentIds[0] : undefined;
-      
+
       const chatResponse: ChatResponse = await ragService.chatWithDocument(
         userId,
         userMessage,
@@ -605,46 +606,50 @@ const ChatScreen: React.FC<Props> = ({
 
   // Render sources tab content
   const renderSourcesTab = () => (
-    <ScrollView style={styles.tabContent} contentContainerStyle={styles.sourcesContainer}>
-      <View style={styles.sourcesHeader}>
-        <Text style={styles.sourcesTitle}>Sources</Text>
-        <Text style={styles.sourcesSubtitle}>{chatSources.length} source{chatSources.length !== 1 ? 's' : ''}</Text>
-      </View>
-
-      {chatSources.map((source: Document, index: number) => (
-        <View key={source.$id} style={styles.sourceCard}>
-          <View style={styles.sourceIcon}>
-            <Text style={styles.sourceEmoji}>📄</Text>
-          </View>
-          <View style={styles.sourceInfo}>
-            <View style={styles.sourceTitleContainer}>
-              <Text style={styles.sourceTitle} numberOfLines={2}>
-                {source.title}
-              </Text>
-              {source.chatId === currentChatId && (
-                <View style={styles.chatSpecificBadge}>
-                  <Text style={styles.chatSpecificText}>Chat-only</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.sourceMeta}>
-              {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.sourceActions}
-            onPress={() => handleSourceAction(source)}
-          >
-            <Text style={styles.sourceActionIcon}>⋯</Text>
-          </TouchableOpacity>
+    <View style={styles.sourcesTabContainer}>
+      <ScrollView style={styles.tabContent} contentContainerStyle={styles.sourcesContainer}>
+        <View style={styles.sourcesHeader}>
+          <Text style={styles.sourcesTitle}>Sources</Text>
+          <Text style={styles.sourcesSubtitle}>{chatSources.length} source{chatSources.length !== 1 ? 's' : ''}</Text>
         </View>
-      ))}
 
-      <TouchableOpacity style={styles.addSourceButton} onPress={() => setShowAddSourceModal(true)}>
-        <Text style={styles.addSourceIcon}>+</Text>
-        <Text style={styles.addSourceText}>Add source</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        {chatSources.map((source: Document, index: number) => (
+          <View key={source.$id} style={styles.sourceCard}>
+            <View style={styles.sourceInfo}>
+              <View style={styles.sourceTitleContainer}>
+                <Text style={styles.sourceTitle} numberOfLines={2}>
+                  {source.title}
+                </Text>
+                {source.chatId === currentChatId && (
+                  <View style={styles.chatSpecificBadge}>
+                    <Text style={styles.chatSpecificText}>Chat-only</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.sourceMeta}>
+                {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.sourceActions}
+              onPress={() => handleSourceAction(source)}
+            >
+              <Text style={styles.sourceActionIcon}>⋯</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={styles.addSourceButtonContainer}>
+        <TouchableOpacity style={styles.addSourceButton} onPress={() => setShowAddSourceModal(true)}>
+          <Image
+            style={{ width: 12, height: 12, marginRight: 8 }}
+            source={require('../../assets/icons/plus.png')}
+          />
+          <Text style={styles.addSourceText}>Add Document</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 
   // Render chat tab content
@@ -655,7 +660,8 @@ const ChatScreen: React.FC<Props> = ({
           <View style={styles.welcomeIcon}>
             <Text style={styles.welcomeEmoji}>💬</Text>
           </View>
-          <Text style={styles.welcomeTitle}>
+          <Text style={styles.welcomeTitle}>Start Chat.</Text>
+          {/* <Text style={styles.welcomeTitle}>
             {chatSources.length > 0 ? chatSources[0].title : 'Chat with your sources'}
           </Text>
           <Text style={styles.welcomeSubtitle}>
@@ -663,8 +669,9 @@ const ChatScreen: React.FC<Props> = ({
               ? `The provided document${chatSources.length > 1 ? 's' : ''} outline${chatSources.length === 1 ? 's' : ''} ${chatSources.map(s => s.title).join(', ')}.`
               : 'Ask questions about your uploaded documents.'
             }
-          </Text>
-          <View style={styles.askSection}>
+          </Text> */}
+          {/* could be use in future */}
+          {/* <View style={styles.askSection}>
             <Text style={styles.askLabel}>Ask {chatSources.length || 0} source{chatSources.length !== 1 ? 's' : ''}...</Text>
             <View style={styles.sourceIndicator}>
               <Text style={styles.sourceCount}>📄{chatSources.length}</Text>
@@ -672,7 +679,7 @@ const ChatScreen: React.FC<Props> = ({
                 {availableModels.find(m => m.id === selectedModel)?.icon} {availableModels.find(m => m.id === selectedModel)?.name}
               </Text>
             </View>
-          </View>
+          </View> */}
         </View>
       ) : (
         <FlatList
@@ -741,19 +748,19 @@ const ChatScreen: React.FC<Props> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>←</Text>
+            <Image
+              style={{ width: 16, height: 16, marginRight: 8 }}
+              source={require('../../assets/icons/back-arrow.png')}
+            />
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
             <Text style={styles.headerTitle}>
-              {chatSources.length > 0 
-                ? chatSources.length === 1 
+              {chatSources.length > 0
+                ? chatSources.length === 1
                   ? chatSources[0].title
                   : `${chatSources.length} Sources Chat`
                 : 'Chat with Sources'
               }
-            </Text>
-            <Text style={styles.headerSubtitle}>
-              {availableModels.find(m => m.id === selectedModel)?.icon} {availableModels.find(m => m.id === selectedModel)?.name}
             </Text>
           </View>
           <TouchableOpacity style={styles.headerAction}>
@@ -772,7 +779,10 @@ const ChatScreen: React.FC<Props> = ({
             style={[styles.navTab, activeTab === 'sources' && styles.activeNavTab]}
             onPress={() => setActiveTab('sources')}
           >
-            <Text style={styles.navIcon}>📑</Text>
+            <Image
+              style={styles.navIcon}
+              source={require('../../assets/icons/file-fill.png')}
+            />
             <Text style={[styles.navLabel, activeTab === 'sources' && styles.activeNavLabel]}>
               Sources
             </Text>
@@ -782,7 +792,10 @@ const ChatScreen: React.FC<Props> = ({
             style={[styles.navTab, activeTab === 'chat' && styles.activeNavTab]}
             onPress={() => setActiveTab('chat')}
           >
-            <Text style={styles.navIcon}>💬</Text>
+              <Image
+              style={styles.navIcon}
+              source={require('../../assets/icons/chat-fill.png')}
+            />
             <Text style={[styles.navLabel, activeTab === 'chat' && styles.activeNavLabel]}>
               Chat
             </Text>
@@ -812,8 +825,8 @@ const ChatScreen: React.FC<Props> = ({
                 {/* Upload New Documents Section */}
                 <Text style={styles.modalSubtitle}>Upload New Document</Text>
                 <View style={styles.uploadOptions}>
-                  <TouchableOpacity 
-                    style={[styles.uploadOption, (uploading || processing) && styles.disabledUploadOption]} 
+                  <TouchableOpacity
+                    style={[styles.uploadOption, (uploading || processing) && styles.disabledUploadOption]}
                     onPress={handlePdfUpload}
                     disabled={uploading || processing}
                   >
@@ -896,13 +909,13 @@ const ChatScreen: React.FC<Props> = ({
           animationType="fade"
           onRequestClose={() => setShowSourceDropdown(false)}
         >
-          <TouchableOpacity 
-            style={styles.dropdownOverlay} 
-            activeOpacity={1} 
+          <TouchableOpacity
+            style={styles.dropdownOverlay}
+            activeOpacity={1}
             onPress={() => setShowSourceDropdown(false)}
           >
             <View style={styles.dropdownContent}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.dropdownOption, deletingDocument && styles.disabledDropdownOption]}
                 onPress={handleDeleteSourceFromDropdown}
                 activeOpacity={0.7}
@@ -916,18 +929,18 @@ const ChatScreen: React.FC<Props> = ({
                   </Text>
                 )}
                 <Text style={styles.dropdownOptionText}>
-                  {deletingDocument 
+                  {deletingDocument
                     ? 'Deleting...'
-                    : selectedSourceForAction?.chatId === currentChatId 
-                      ? 'Delete document' 
+                    : selectedSourceForAction?.chatId === currentChatId
+                      ? 'Delete document'
                       : 'Remove from chat'
                   }
                 </Text>
               </TouchableOpacity>
-              
+
               <View style={styles.dropdownSeparator} />
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.dropdownOption, deletingDocument && styles.disabledDropdownOption]}
                 onPress={() => setShowSourceDropdown(false)}
                 activeOpacity={0.7}
@@ -961,7 +974,7 @@ const ChatScreen: React.FC<Props> = ({
 
               <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
                 <Text style={styles.modelCategoryTitle}>Available Models</Text>
-                
+
                 {availableModels.map((model) => (
                   <TouchableOpacity
                     key={model.id}
@@ -1075,10 +1088,14 @@ const styles = StyleSheet.create({
   tabContent: {
     flex: 1,
   },
-  
+
   // Sources Tab Styles
+  sourcesTabContainer: {
+    flex: 1,
+  },
   sourcesContainer: {
     padding: 16,
+    paddingBottom: 0, // Remove bottom padding since button is now separate
   },
   sourcesHeader: {
     marginBottom: 20,
@@ -1152,26 +1169,27 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#999',
   },
+  addSourceButtonContainer: {
+    padding: 16,
+    paddingTop: 8,
+    backgroundColor: '#2c2c2e',
+    borderTopWidth: 1,
+    borderTopColor: '#3a3a3c',
+  },
   addSourceButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3a3a3c',
-    borderRadius: 12,
+    backgroundColor: '#FF734C',
+    borderRadius: 30,
+    gap: 6,
     padding: 16,
-    marginTop: 8,
-    borderWidth: 2,
     borderColor: '#555',
     borderStyle: 'dashed',
   },
-  addSourceIcon: {
-    fontSize: 20,
-    color: '#007AFF',
-    marginRight: 8,
-  },
   addSourceText: {
     fontSize: 16,
-    color: '#007AFF',
+    color: 'white',
     fontWeight: '500',
   },
 
@@ -1316,11 +1334,12 @@ const styles = StyleSheet.create({
   },
   activeNavTab: {
     borderTopWidth: 2,
-    borderTopColor: '#007AFF',
+    borderTopColor: '#FF734C',
   },
   navIcon: {
-    fontSize: 20,
     marginBottom: 4,
+    height: 30,
+    width: 30,
   },
   navLabel: {
     fontSize: 12,
@@ -1328,7 +1347,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   activeNavLabel: {
-    color: '#007AFF',
+    color: '#FF734C',
   },
   disabledIcon: {
     opacity: 0.3,

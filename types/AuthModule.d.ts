@@ -61,6 +61,7 @@ export interface User {
   status: string;
   passwordUpdate: number;
   prefs: Record<string, any>;
+  avatarUrl: string;
 }
 
 export interface Session {

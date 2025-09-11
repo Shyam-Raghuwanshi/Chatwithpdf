@@ -29,8 +29,6 @@ interface DashboardScreenProps {
 }
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
-  // Performance debugging
-  const mountTime = useRef(Date.now());
 
   const [loading, setLoading] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings'>('dashboard');
@@ -403,16 +401,17 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             </View>
             <View style={styles.userInfo}>
               <TouchableOpacity style={styles.search} onPress={handleProfilePress}>
-                <Image 
-                  source={require('../../assets/icons/search.png')} 
-                  style={{width: 20, height: 20}}
+                <Image
+                  source={require('../../assets/icons/search.png')}
+                  style={{ width: 20, height: 20 }}
                   resizeMode="contain"
                 />
               </TouchableOpacity>
               <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
-                <Text style={styles.avatarText}>
-                  {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
-                </Text>
+                <Image
+                  style={{ width: 36, height: 36, borderRadius: 18 }}
+                  source={{ uri: user.avatarUrl }}
+                />
               </TouchableOpacity>
             </View>
           </View>
@@ -491,7 +490,13 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               </View>
             ) : (
               <>
-                <Text style={styles.createNewButtonText}>+ Create New</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Image
+                    style={{ width: 12, height: 12, marginRight: 8 }}
+                    source={require('../../assets/icons/plus.png')}
+                  />
+                  <Text style={styles.createNewButtonText}> New Chat</Text>
+                </View>
               </>
             )}
           </TouchableOpacity>
@@ -870,11 +875,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   createNewButton: {
-    backgroundColor: 'white',
+    backgroundColor: '#FF734C',
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 25,
-    shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 4,
@@ -885,7 +889,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   createNewButtonText: {
-    color: '#333',
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },

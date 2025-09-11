@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import type { User } from '../../types/AuthModule';
 import auth from '../../utils/AppwriteAuth';
@@ -91,9 +92,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout 
         <View style={styles.section}>
           <View style={styles.profileSection}>
             <View style={styles.profileAvatar}>
-              <Text style={styles.avatarText}>
-                {user.name.charAt(0).toUpperCase()}
-              </Text>
+              <Image
+                style={{ width: 60, height: 60, borderRadius: 28 }}
+                source={{ uri: user.avatarUrl }}
+              />
             </View>
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{user.name}</Text>
@@ -245,8 +247,6 @@ const styles = StyleSheet.create({
   profileAvatar: {
     width: 60,
     height: 60,
-    borderRadius: 30,
-    backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,

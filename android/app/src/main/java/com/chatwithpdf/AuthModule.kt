@@ -14,23 +14,55 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.appwrite.services.Avatars
+import java.net.URLEncoder
+import java.net.URL
+import java.net.HttpURLConnection
+import org.json.JSONObject
 
 class AuthModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     
     private lateinit var client: Client
     private lateinit var account: Account
+    private lateinit var avatar: Avatars
+    private var projectId: String = ""
+    private var endpoint: String = ""
 
     override fun getName(): String {
         return "AuthModule"
     }
     
+    private suspend fun fetchGoogleProfilePicture(accessToken: String): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = URL("https://www.googleapis.com/oauth2/v2/userinfo?access_token=$accessToken")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Authorization", "Bearer $accessToken")
+                
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().readText()
+                    val jsonObject = JSONObject(response)
+                    return@withContext jsonObject.optString("picture", null)
+                }
+                null
+            } catch (e: Exception) {
+                println("Error fetching Google profile picture: ${e.message}")
+                null
+            }
+        }
+    }
+    
     @ReactMethod
     fun initializeClient(endpoint: String, projectId: String, promise: Promise) {
         try {
+            this.endpoint = endpoint
+            this.projectId = projectId
             client = Client(reactApplicationContext)
                 .setEndpoint(endpoint)
                 .setProject(projectId)
             account = Account(client)
+            avatar = Avatars(client)
             promise.resolve("Client initialized successfully")
         } catch (e: Exception) {
             promise.reject("INIT_ERROR", "Failed to initialize client: ${e.message}", e)
@@ -110,6 +142,51 @@ class AuthModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
                     putString("registration", user.registration)
                     putBoolean("status", user.status)
                     putString("passwordUpdate", user.passwordUpdate)
+                    
+                    // Try to get actual profile picture from OAuth provider
+                    var avatarUrl: String? = null
+                    
+                    try {
+                        // Get current session to check OAuth provider info
+                        val session = account.getSession("current")
+                        
+                        when (session.provider.lowercase()) {
+                            "google" -> {
+                                // For Google OAuth, fetch actual profile picture using access token
+                                val accessToken = session.providerAccessToken
+                                if (accessToken != null && accessToken.isNotEmpty()) {
+                                    avatarUrl = fetchGoogleProfilePicture(accessToken)
+                                }
+                            }
+                            "facebook" -> {
+                                val userId = session.providerUid
+                                if (userId != null && userId.isNotEmpty()) {
+                                    avatarUrl = "https://graph.facebook.com/$userId/picture?type=normal"
+                                }
+                            }
+                            "github" -> {
+                                val userId = session.providerUid
+                                if (userId != null && userId.isNotEmpty()) {
+                                    avatarUrl = "https://avatars.githubusercontent.com/u/$userId?v=4"
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // If getting session or OAuth info fails, continue with fallback
+                        println("Failed to get OAuth session info: ${e.message}")
+                    }
+                    
+                    // If no OAuth profile picture found, fallback to initials
+                    if (avatarUrl == null || avatarUrl.isEmpty()) {
+                        if (user.name != null && user.name.isNotEmpty()) {
+                            val encodedName = URLEncoder.encode(user.name, "UTF-8")
+                            avatarUrl = "$endpoint/avatars/initials?name=$encodedName&width=40&height=40&project=$projectId"
+                        } else {
+                            avatarUrl = "$endpoint/avatars/initials?name=User&width=40&height=40&project=$projectId"
+                        }
+                    }
+                    
+                    putString("avatarUrl", avatarUrl)
                     
                     // Add empty preferences map for now
                     val prefsMap = WritableNativeMap()
