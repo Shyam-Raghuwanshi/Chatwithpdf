@@ -11,8 +11,6 @@ import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import type { User } from './types/AuthModule';
 import ServiceInitializer from './utils/ServiceInitializer';
-import ServicePerformanceMonitor from './utils/ServicePerformanceMonitor';
-import { backgroundService } from './utils/BackgroundServiceManager';
 
 function App(): React.JSX.Element {
   const [user, setUser] = useState<User | null>(null);
@@ -37,12 +35,8 @@ function App(): React.JSX.Element {
     <ServiceInitializer userId={user?.id} enableWarmup={true}>
       <StatusBar
         barStyle="dark-content"
-        backgroundColor="#f8f9fa"
+        backgroundColor="#232222"
       />
-      
-      {/* Performance Monitor - only shows in development */}
-      <ServicePerformanceMonitor enabled={__DEV__} position="top" />
-      
       {user ? (
         <DashboardScreen user={user} onLogout={handleLogout} />
       ) : (

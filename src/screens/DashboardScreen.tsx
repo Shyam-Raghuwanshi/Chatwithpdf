@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import auth from '../../utils/AppwriteAuth';
 import PdfScreen from './PdfScreen';
@@ -20,6 +21,7 @@ import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
+
 import DocumentPicker from '../components/DocumentPicker';
 interface DashboardScreenProps {
   user: User;
@@ -224,7 +226,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
     try {
       console.log("Starting PDF document picker...");
-      
+
       // Use document picker to select PDF from device
       const selectedDocument = await DocumentPicker.pickSingle({
         type: [DocumentPicker.types.pdf],
@@ -237,14 +239,14 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       }
 
       console.log("Selected document:", selectedDocument);
-      
+
       // Copy the content URI to internal storage
       const internalPath = await PdfTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
       console.log("Document copied to internal storage:", internalPath);
-      
+
       // Get the document name
       const documentName = selectedDocument.name || 'Selected PDF';
-      
+
       const { NativeModules } = require('react-native');
       let response = null;
       let extractionMethod = '';
@@ -254,18 +256,18 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         console.log("Starting fast OCR extraction (all pages)...");
         const fastOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithFastOCR(internalPath);
         console.log("Fast OCR result:", fastOCRResult);
-        
+
         if (fastOCRResult && fastOCRResult.text && fastOCRResult.text.trim().length > 50) {
           console.log("✅ Fast OCR successful - using result");
           response = fastOCRResult;
           extractionMethod = `Fast OCR Extraction (${fastOCRResult.totalPages || 'All'} pages)`;
-          
+
           // Also try full OCR in the background to compare quality
           try {
             console.log("Also attempting full OCR for comparison...");
             const fullOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
             console.log("Full OCR result:", fullOCRResult);
-            
+
             if (fullOCRResult && fullOCRResult.text && fullOCRResult.text.trim().length > fastOCRResult.text.trim().length * 1.5) {
               // Full OCR got significantly more text (at least 50% more)
               response = fullOCRResult;
@@ -295,11 +297,11 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       }
 
       // Check if we got any meaningful text
-      console.log("Final extraction check:", { 
-        hasResponse: !!response, 
-        hasText: !!response?.text, 
+      console.log("Final extraction check:", {
+        hasResponse: !!response,
+        hasText: !!response?.text,
         textLength: response?.text?.trim().length || 0,
-        extractionMethod 
+        extractionMethod
       });
 
       if (!response || !response.text || response.text.trim().length < 10) {
@@ -324,9 +326,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       }
     } catch (e: any) {
       console.error('PDF upload error:', e);
-      
+
       let errorMessage = 'Failed to process PDF';
-      
+
       if (e?.message?.includes('User cancelled') || e?.message?.includes('CANCELLED')) {
         // Don't show error for user cancellation
         setUploading(false);
@@ -340,7 +342,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       } else {
         errorMessage = e?.message || errorMessage;
       }
-      
+
       Alert.alert('Error', errorMessage);
     } finally {
       setUploading(false);
@@ -396,37 +398,31 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity>
+            <View>
               <Text style={styles.title}>ChatWithLLm</Text>
-            </TouchableOpacity>
+            </View>
             <View style={styles.userInfo}>
+              <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
+                <Text style={styles.avatarText}>
+                  <Image src='../../assets/icons/search.svg'/>
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
                 <Text style={styles.avatarText}>
                   {user.name.charAt(0).toUpperCase()}
                 </Text>
               </TouchableOpacity>
-              {/* <View style={styles.userDetails}>
-                <Text style={styles.welcomeText}>Welcome back,</Text>
-                <Text style={styles.userName}>{user.name}</Text>
-              </View> */}
             </View>
-            {/* <TouchableOpacity
-              style={styles.logoutButton}
-              onPress={handleLogout}
-              disabled={loading}
-            >
-              <Text style={styles.logoutText}>Sign Out</Text>
-            </TouchableOpacity> */}
           </View>
 
           {/* Main Content */}
           <View style={styles.mainContent}>
             {/* Tab Navigation */}
-            {/* <View style={styles.tabNavigation}>
-              <TouchableOpacity style={styles.tabActive}>
-                <Text style={styles.tabTextActive}>Recent</Text>
+            <View style={styles.tabNavigation}>
+              <TouchableOpacity >
+                <Text style={styles.tabTextActive}>Chats</Text>
               </TouchableOpacity>
-            </View> */}
+            </View>
 
             {/* Documents List */}
             <View style={styles.documentsContainer}>
@@ -447,12 +443,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
                     style={styles.documentCard}
                     onPress={() => handleDocumentPress(doc)}
                   >
-                    <View style={styles.documentIcon}>
-                      <Text style={styles.documentEmoji}>📄</Text>
-                    </View>
                     <View style={styles.documentInfo}>
                       <Text style={styles.documentTitle} numberOfLines={1}>
-                        {user.name}: {doc.title}
+                        {doc.title}
                       </Text>
                       <Text style={styles.documentMeta}>
                         1 source • {formatTimeAgo(doc.createdAt)}
@@ -611,7 +604,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2c2c2e',
+    backgroundColor: '#232222',
   },
   content: {
     flex: 1,
@@ -621,7 +614,7 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 20,
   },
   screenHeader: {
@@ -648,12 +641,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 20,
     width: '100%',
   },
   title: {
     color: "white",
-    width: "100%",
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   userInfo: {
     flexDirection: 'row',
@@ -661,8 +655,8 @@ const styles = StyleSheet.create({
     display: "flex",
   },
   avatar: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: 20,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
@@ -700,7 +694,6 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
-    paddingHorizontal: 20,
   },
   tabNavigation: {
     flexDirection: 'row',
@@ -711,13 +704,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginRight: 8,
   },
-  tabActive: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    backgroundColor: '#3a3a3c',
-    borderRadius: 20,
-  },
   tabText: {
     color: '#999',
     fontSize: 14,
@@ -725,7 +711,7 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: 'white',
-    fontSize: 14,
+    fontSize: 30,
     fontWeight: '600',
   },
   documentsContainer: {
@@ -751,19 +737,11 @@ const styles = StyleSheet.create({
   documentCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#3a3a3c',
+    backgroundColor: '#393837',
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     marginBottom: 12,
-  },
-  documentIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#4a7dff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
   },
   documentEmoji: {
     fontSize: 18,
@@ -801,7 +779,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 16,
-    backgroundColor: '#3a3a3c',
+    backgroundColor: '#232222',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
