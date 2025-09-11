@@ -129,7 +129,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         {/* App Logo/Header */}
         <View style={styles.header}>
           <Image
-            source={require('../../assests/app-icon.png')}
+            source={require('../../assets/app-icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />

@@ -402,14 +402,16 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               <Text style={styles.title}>ChatWithLLm</Text>
             </View>
             <View style={styles.userInfo}>
-              <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
-                <Text style={styles.avatarText}>
-                  <Image src='../../assets/icons/search.svg'/>
-                </Text>
+              <TouchableOpacity style={styles.search} onPress={handleProfilePress}>
+                <Image 
+                  source={require('../../assets/icons/search.png')} 
+                  style={{width: 20, height: 20}}
+                  resizeMode="contain"
+                />
               </TouchableOpacity>
               <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
                 <Text style={styles.avatarText}>
-                  {user.name.charAt(0).toUpperCase()}
+                  {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -658,7 +660,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 20,
-    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  search: {
+    width: 36,
+    height: 36,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
