@@ -29,6 +29,7 @@
     "react-native-customized-box": "^1.1.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-linking": "^0.0.0",
+    "react-native-razorpay": "^2.3.0",
     "stream-browserify": "^3.0.0",
     "uuid": "^11.1.0"
   },

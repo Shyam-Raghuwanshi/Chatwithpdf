@@ -30,6 +30,10 @@ export interface AppConfig {
             apiUrl?: string;
             timeout?: number;
       };
+      razorpay: {
+            keyId: string;
+            keySecret: string;
+      };
       chunking: {
             chunkSize: number;
             overlap: number;
@@ -45,7 +49,7 @@ export const defaultConfig: AppConfig = {
             projectId: '68a74c460028f0e4cfac', // Update with your Appwrite project ID
             databaseId: '68a7552c0009a09693b0',
       },
-       qdrant: {
+      qdrant: {
             url: "https://086d53ce-537f-4749-ac07-113ec87218d4.us-east4-0.gcp.cloud.qdrant.io:6333",
             apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.qWSVCKblkqUnKF1tIGlYjaAJsQjHxsRLT-frvmRm1H8',
             timeout: 30000,
@@ -77,6 +81,11 @@ export const defaultConfig: AppConfig = {
             // Minimum chunk size to avoid tiny chunks
             minChunkSize: 200,
       },
+      razorpay: {
+            keyId: "rzp_test_RHb3fMCgEJEMd8",
+            keySecret: "JVpKaopl5D1hh11CeGfBNfgK",
+      }
+
 };
 
 /**

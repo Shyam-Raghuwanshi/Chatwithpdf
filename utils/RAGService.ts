@@ -720,6 +720,13 @@ export class RAGService {
   async getModels(): Promise<import('./AppwriteDB').Model[]> {
     return this.appwriteDB.getModels();
   }
+
+  /**
+   * Update user profile
+   */
+  async updateUserProfile(userId: string, profileData: Partial<UserProfile>): Promise<UserProfile> {
+    return this.appwriteDB.createOrUpdateUserProfile(userId, profileData);
+  }
 }
 
 export default RAGService;

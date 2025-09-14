@@ -13,6 +13,7 @@ import {
 import { Plan, UserProfile } from '../../utils/AppwriteDB';
 import { useRAGService } from '../../utils/useServices';
 import { FONT_FAMILY } from '../../utils/FontConfig';
+import { openRazorpay } from '../../utils/RazorpayPayment';
 
 interface BillingScreenProps {
   userId: string;
@@ -62,39 +63,43 @@ const BillingScreen: React.FC<BillingScreenProps> = ({ userId, onBack }) => {
   const handleSubscribe = async (plan: Plan) => {
     try {
       setSubscribing(plan.$id!);
-      
-      // For now, show a coming soon alert
-      // In a real app, you would integrate with a payment processor
-      Alert.alert(
-        'Subscribe to ' + plan.name,
-        `You're about to subscribe to ${plan.name} for ₹${(plan.price / 100).toFixed(2)} with ${plan.tokensLimit.toLocaleString()} tokens for ${plan.durationDays} days.\n\nPayment integration coming soon!`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Confirm',
-            onPress: async () => {
-              try {
-                // Update user profile with new plan
-                if (!ragService || !userProfile) return;
-                
-                const subscriptionEndDate = new Date();
-                subscriptionEndDate.setDate(subscriptionEndDate.getDate() + plan.durationDays);
-                
-                // await ragService.createOrUpdateUserProfile(userId, {
-                //   plan: plan.name.toLowerCase() as 'free' | 'pro' | 'enterprise',
-                //   tokenRemaining: plan.tokensLimit,
-                //   subscriptionValidTill: subscriptionEndDate,
-                // });
-                
-                Alert.alert('Success', `Successfully subscribed to ${plan.name}!`);
-                await loadData(); // Refresh data
-              } catch (error: any) {
-                Alert.alert('Error', `Failed to update subscription: ${error.message}`);
-              }
-            }
-          }
-        ]
-      );
+      if (plan.price > 0) {
+        // Paid plan: trigger Razorpay payment
+        try {
+          const paymentResult = await openRazorpay({
+            amount: plan.price,
+            currency: 'INR',
+            description: `Subscribe to ${plan.name}`,
+            name: 'Chatwithpdf',
+            prefill: {}, // Removed email and name
+          });
+          // Payment success, update user profile
+          if (!ragService || !userProfile) return;
+          const subscriptionEndDate = new Date();
+          subscriptionEndDate.setDate(subscriptionEndDate.getDate() + plan.durationDays);
+          await ragService.updateUserProfile(userId, {
+            plan: plan.name.toLowerCase() as 'free' | 'pro' | 'enterprise',
+            tokenRemaining: plan.tokensLimit,
+            subscriptionValidTill: subscriptionEndDate,
+          });
+          Alert.alert('Success', `Successfully subscribed to ${plan.name}!`);
+          await loadData();
+        } catch (error: any) {
+          Alert.alert('Error', `Payment failed or cancelled: ${error.message || error}`);
+        }
+      } else {
+        // Free plan: update profile directly
+        if (!ragService || !userProfile) return;
+        const subscriptionEndDate = new Date();
+        subscriptionEndDate.setDate(subscriptionEndDate.getDate() + plan.durationDays);
+        await ragService.updateUserProfile(userId, {
+          plan: plan.name.toLowerCase() as 'free' | 'pro' | 'enterprise',
+          tokenRemaining: plan.tokensLimit,
+          subscriptionValidTill: subscriptionEndDate,
+        });
+        Alert.alert('Success', `Successfully downgraded to ${plan.name}!`);
+        await loadData();
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
