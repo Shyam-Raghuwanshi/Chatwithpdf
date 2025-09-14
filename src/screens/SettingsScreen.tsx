@@ -11,32 +11,36 @@ import {
 } from 'react-native';
 import type { User } from '../../types/AuthModule';
 import auth from '../../utils/AppwriteAuth';
+import { FONT_FAMILY } from '../../utils/FontConfig';
 
 interface SettingsScreenProps {
   user: User;
   onBack: () => void;
   onLogout: () => void;
+  onNavigateToProfile: () => void;
+  onNavigateToBilling: () => void;
 }
 
-const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout }) => {
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout, onNavigateToProfile, onNavigateToBilling }) => {
+
   const handleLogout = async () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      'Log out',
+      'Are you sure you want to log out?',
       [
         {
           text: 'Cancel',
           style: 'cancel',
         },
         {
-          text: 'Sign Out',
+          text: 'Log out',
           style: 'destructive',
           onPress: async () => {
             try {
               await auth.signOut();
               onLogout();
             } catch (error: any) {
-              Alert.alert('Error', `Sign out failed: ${error.message}`);
+              Alert.alert('Error', `Log out failed: ${error.message}`);
             }
           },
         },
@@ -44,36 +48,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout 
     );
   };
 
-  const handleUpgradePlan = () => {
+  const handleUpgrade = () => {
     Alert.alert(
-      'Upgrade Plan',
+      'Upgrade',
       'Pro features coming soon! Stay tuned for advanced chat capabilities, unlimited documents, and priority support.',
       [{ text: 'OK', style: 'default' }]
     );
   };
 
-  const handleSupport = () => {
-    Alert.alert(
-      'Support',
-      'Need help? Contact us at support@chatwithpdf.com or visit our help center.',
-      [{ text: 'OK', style: 'default' }]
-    );
+  const handleBilling = () => {
+    onNavigateToBilling();
   };
 
-  const handlePrivacy = () => {
-    Alert.alert(
-      'Privacy Policy',
-      'Your privacy is important to us. We only store necessary data to provide our services and never share your information with third parties.',
-      [{ text: 'OK', style: 'default' }]
-    );
-  };
-
-  const handleTerms = () => {
-    Alert.alert(
-      'Terms of Service',
-      'By using this app, you agree to our terms of service. Please use responsibly and respect intellectual property rights.',
-      [{ text: 'OK', style: 'default' }]
-    );
+  const handleAppearance = () => {
+    Alert.alert('Appearance', 'Currently set to Dark theme. Theme options coming soon!');
   };
 
   return (
@@ -85,102 +73,60 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout 
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Settings</Text>
-          <View style={styles.headerSpacer} />
+          <TouchableOpacity style={styles.infoButton}>
+            <Text style={styles.infoButtonText}>ⓘ</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Profile Section */}
-        <View style={styles.section}>
-          <View style={styles.profileSection}>
-            <View style={styles.profileAvatar}>
-              <Image
-                style={{ width: 60, height: 60, borderRadius: 28 }}
-                source={{ uri: user.avatarUrl }}
-              />
+        {/* Upgrade Section */}
+        <View style={styles.upgradeSection}>
+          <Text style={styles.upgradeTitle}>Want more?</Text>
+          <Text style={styles.upgradeSubtitle}>
+            Upgrade for more usage and capabilities.
+          </Text>
+          <TouchableOpacity style={styles.upgradeButton} onPress={handleUpgrade}>
+            <Text style={styles.upgradeButtonText}>Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Settings List */}
+        <View style={styles.settingsList}>
+          <TouchableOpacity style={styles.settingItem} onPress={onNavigateToProfile}>
+            <Image
+              style={{ width: 20, height: 20, marginRight: 8 }}
+              source={require('../../assets/icons/user.png')}
+            />
+            <Text style={styles.settingTitle}>Profile</Text>
+          </TouchableOpacity>
+
+          {/* Billing */}
+          <TouchableOpacity style={{ borderBottomWidth: 1, borderBottomColor: '#333333', ...styles.settingItem }} onPress={handleBilling}>
+            <Image
+              style={{ width: 20, height: 20, marginRight: 8 }}
+              source={require('../../assets/icons/dollar.png')}
+            />
+            <Text style={styles.settingTitle}>Billing</Text>
+          </TouchableOpacity>
+
+          {/* Appearance */}
+          <TouchableOpacity style={styles.settingItem} onPress={handleAppearance}>
+            <Image
+              style={{ width: 20, height: 20, marginRight: 8 }}
+              source={require('../../assets/icons/moon.png')}
+            />
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>Color mode</Text>
+              <Text style={styles.settingSubtitle}>Dark</Text>
             </View>
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{user.name}</Text>
-              <Text style={styles.profileEmail}>{user.email}</Text>
-            </View>
-          </View>
-        </View>
+          </TouchableOpacity>
 
-        {/* Plan Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Plan</Text>
-          <View style={styles.planCard}>
-            <View style={styles.planInfo}>
-              <Text style={styles.planName}>Free Plan</Text>
-              <Text style={styles.planDescription}>
-                • Up to 10 documents
-                {'\n'}• Basic chat features
-                {'\n'}• Community support
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.upgradeButton} onPress={handleUpgradePlan}>
-              <Text style={styles.upgradeButtonText}>Upgrade</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Account Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.settingsGroup}>
-            <TouchableOpacity style={styles.settingItem} onPress={handleSupport}>
-              <View style={styles.settingIcon}>
-                <Text style={styles.settingEmoji}>🎧</Text>
-              </View>
-              <View style={styles.settingContent}>
-                <Text style={styles.settingTitle}>Support</Text>
-                <Text style={styles.settingSubtitle}>Get help and contact us</Text>
-              </View>
-              <Text style={styles.settingArrow}>›</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.settingItem} onPress={handlePrivacy}>
-              <View style={styles.settingIcon}>
-                <Text style={styles.settingEmoji}>🔒</Text>
-              </View>
-              <View style={styles.settingContent}>
-                <Text style={styles.settingTitle}>Privacy Policy</Text>
-                <Text style={styles.settingSubtitle}>How we handle your data</Text>
-              </View>
-              <Text style={styles.settingArrow}>›</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.settingItem} onPress={handleTerms}>
-              <View style={styles.settingIcon}>
-                <Text style={styles.settingEmoji}>📋</Text>
-              </View>
-              <View style={styles.settingContent}>
-                <Text style={styles.settingTitle}>Terms of Service</Text>
-                <Text style={styles.settingSubtitle}>App usage terms</Text>
-              </View>
-              <Text style={styles.settingArrow}>›</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* App Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>App</Text>
-          <View style={styles.settingsGroup}>
-            <View style={styles.settingItem}>
-              <View style={styles.settingIcon}>
-                <Text style={styles.settingEmoji}>📱</Text>
-              </View>
-              <View style={styles.settingContent}>
-                <Text style={styles.settingTitle}>Version</Text>
-                <Text style={styles.settingSubtitle}>1.0.0</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Logout Button */}
-        <View style={styles.logoutSection}>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Sign Out</Text>
+          {/* Log out */}
+          <TouchableOpacity style={styles.logoutItem} onPress={handleLogout}>
+            <Image
+              style={{ width: 20, height: 20, marginRight: 8 }}
+              source={require('../../assets/icons/logout.png')}
+            />
+            <Text style={styles.logoutTitle}>Log out</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -191,7 +137,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2c2c2e',
+    backgroundColor: '#1a1a1a',
   },
   scrollView: {
     flex: 1,
@@ -204,164 +150,114 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#1c1c1e',
-    borderBottomWidth: 1,
-    borderBottomColor: '#3a3a3c',
+    paddingBottom: 12,
+    backgroundColor: '#232222',
   },
   backButton: {
     padding: 8,
   },
   backButtonText: {
     fontSize: 18,
-    color: '#007AFF',
+    color: '#ffffff',
     fontWeight: '500',
   },
   headerTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: 'white',
+    color: '#ffffff',
   },
-  headerSpacer: {
-    width: 34, // Same width as back button to center title
+  infoButton: {
+    padding: 8,
   },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 20,
+  infoButtonText: {
+    fontSize: 18,
+    color: '#ffffff',
+    fontWeight: '400',
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 16,
-  },
-  profileSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1c1c1e',
+  upgradeSection: {
+    backgroundColor: "#393837",
+    margin: 16,
     borderRadius: 16,
     padding: 20,
-    borderWidth: 1,
-    borderColor: '#3a3a3c',
   },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  avatarText: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
+  upgradeTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#ffffff',
     marginBottom: 4,
   },
-  profileEmail: {
-    fontSize: 16,
-    color: '#999',
-  },
-  planCard: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#3a3a3c',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  planInfo: {
-    flex: 1,
-  },
-  planName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
-  },
-  planDescription: {
+  upgradeSubtitle: {
     fontSize: 14,
-    color: '#999',
+    color: '#999999',
+    marginBottom: 16,
     lineHeight: 20,
   },
   upgradeButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    backgroundColor: '#ffffff',
     borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
   },
   upgradeButtonText: {
-    color: 'white',
+    color: '#000000',
     fontSize: 14,
     fontWeight: '600',
   },
-  settingsGroup: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#3a3a3c',
-    overflow: 'hidden',
+  settingsList: {
+    paddingHorizontal: 16,
+    paddingLeft: 28,
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3a3a3c',
+    paddingVertical: 16,
   },
-  settingIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#3a3a3c',
+  settingIconContainer: {
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
-  settingEmoji: {
+  settingIcon: {
     fontSize: 18,
+  },
+  settingTitle: {
+    fontSize: 16,
+    paddingLeft: 5,
+    color: '#ffffff',
+    fontWeight: '400',
+    fontFamily: FONT_FAMILY.semiBold,
   },
   settingContent: {
     flex: 1,
   },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 2,
-  },
   settingSubtitle: {
     fontSize: 14,
-    color: '#999',
+    color: '#999999',
+    marginTop: 2,
   },
-  settingArrow: {
-    fontSize: 18,
-    color: '#999',
-    fontWeight: '300',
-  },
-  logoutSection: {
-    padding: 20,
-    paddingTop: 40,
-    paddingBottom: 40,
-  },
-  logoutButton: {
-    backgroundColor: '#ff3b30',
-    borderRadius: 12,
-    paddingVertical: 16,
+  settingContentFlex: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  logoutButtonText: {
-    color: 'white',
+  logoutItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 0,
+    marginTop: 20,
+  },
+  logoutIcon: {
+    fontSize: 18,
+  },
+  logoutTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    color: '#ff6b6b',
+    fontWeight: '400',
   },
 });
 

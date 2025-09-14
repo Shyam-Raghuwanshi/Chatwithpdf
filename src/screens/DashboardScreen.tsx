@@ -17,12 +17,14 @@ import {
 import auth from '../../utils/AppwriteAuth';
 import PdfScreen from './PdfScreen';
 import SettingsScreen from './SettingsScreen';
+import ProfileScreen from './ProfileScreen';
+import BillingScreen from './BillingScreen';
 import type { User } from '../../types/AuthModule';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
-import { FONT_FAMILY, TEXT_STYLES } from '../../utils/FontConfig';
+import { FONT_FAMILY, } from '../../utils/FontConfig';
 
 import DocumentPicker from '../components/DocumentPicker';
 interface DashboardScreenProps {
@@ -33,7 +35,7 @@ interface DashboardScreenProps {
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
 
   const [loading, setLoading] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings' | 'search'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings' | 'search' | 'profile' | 'billing'>('dashboard');
   const [showDropdown, setShowDropdown] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -409,6 +411,32 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           user={user}
           onBack={() => setCurrentScreen('dashboard')}
           onLogout={onLogout}
+          onNavigateToProfile={() => setCurrentScreen('profile')}
+          onNavigateToBilling={() => setCurrentScreen('billing')}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // If profile screen is active, show it
+  if (currentScreen === 'profile') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ProfileScreen 
+          user={user}
+          onBack={() => setCurrentScreen('settings')}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // If billing screen is active, show it
+  if (currentScreen === 'billing') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <BillingScreen 
+          userId={user.id}
+          onBack={() => setCurrentScreen('settings')}
         />
       </SafeAreaView>
     );
@@ -436,7 +464,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>ChatWithLLm</Text>
+              <Text style={styles.title}>Paper</Text>
             </View>
             <View style={styles.userInfo}>
               <TouchableOpacity style={styles.search} onPress={handleSearchPress}>
@@ -693,18 +721,46 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
               {/* Search Results */}
               <ScrollView style={styles.searchResults} contentContainerStyle={styles.searchResultsContainer}>
-                {searchQuery.trim() === '' ? (
-                  <View style={styles.searchEmptyState}>
-                    <Image
-                      source={require('../../assets/icons/search.png')}
-                      style={styles.searchEmptyIcon}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.searchEmptyTitle}>Search Your Documents</Text>
-                    <Text style={styles.searchEmptySubtitle}>
-                      Start typing to find your documents
+                {(loadingDocuments || servicesLoading) ? (
+                  <View style={styles.searchLoadingContainer}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                    <Text style={styles.searchLoadingText}>
+                      {servicesLoading ? 'Initializing services...' : 'Loading documents...'}
                     </Text>
                   </View>
+                ) : searchQuery.trim() === '' ? (
+                  userDocuments.length > 0 ? (
+                    <>
+                      {userDocuments.map((doc) => (
+                        <TouchableOpacity
+                          key={doc.$id}
+                          style={styles.searchDocumentCard}
+                          onPress={() => handleSearchDocumentPress(doc)}
+                        >
+                          <View style={styles.searchDocumentInfo}>
+                            <Text style={styles.searchDocumentTitle} numberOfLines={1} ellipsizeMode="tail">
+                              {doc.title}
+                            </Text>
+                            <Text style={styles.searchDocumentMeta}>
+                              {formatTimeAgo(doc.createdAt)}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  ) : (
+                    <View style={styles.searchEmptyState}>
+                      <Image
+                        source={require('../../assets/icons/search.png')}
+                        style={styles.searchEmptyIcon}
+                        resizeMode="contain"
+                      />
+                      <Text style={styles.searchEmptyTitle}>No Documents Yet</Text>
+                      <Text style={styles.searchEmptySubtitle}>
+                        Upload a PDF to start chatting
+                      </Text>
+                    </View>
+                  )
                 ) : filteredDocuments.length > 0 ? (
                   <>
                     <Text style={styles.searchResultsHeader}>
@@ -1255,6 +1311,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 20,
   },
+  searchLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  searchLoadingText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
+  },
   searchEmptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -1301,7 +1369,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
-  searchDocumentTitle: {
+  searchDocumentTitle: {    
     fontSize: 16,
     fontFamily: FONT_FAMILY.semiBold,
     color: 'white',

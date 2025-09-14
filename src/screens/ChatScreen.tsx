@@ -17,12 +17,57 @@ import {
   Image,
 } from 'react-native';
 import RAGService, { ChatResponse, ProcessDocumentResult } from '../../utils/RAGService';
-import { Document, Chat } from '../../utils/AppwriteDB';
-import { defaultConfig } from '../../utils/Config';
+import { Document, Chat, Model } from '../../utils/AppwriteDB';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
 import { useServices } from '../../utils/useServices';
-import DashboardScreen from './DashboardScreen';
+
+// Global cache for models - persists during app session
+const ModelsCache = {
+  data: null as Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+  }> | null,
+  timestamp: 0,
+  isLoading: false,
+
+  // Cache duration: 30 minutes (in milliseconds)
+  CACHE_DURATION: 30 * 60 * 1000,
+
+  isValid(): boolean {
+    return this.data !== null &&
+      (Date.now() - this.timestamp) < this.CACHE_DURATION;
+  },
+
+  set(data: Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+  }>): void {
+    this.data = data;
+    this.timestamp = Date.now();
+  },
+
+  get(): Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+  }> | null {
+    return this.isValid() ? this.data : null;
+  },
+
+  clear(): void {
+    this.data = null;
+    this.timestamp = 0;
+  }
+};
 
 interface ChatMessage {
   id: string;
@@ -73,48 +118,16 @@ const ChatScreen: React.FC<Props> = ({
   const [deletingDocument, setDeletingDocument] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [selectedModel, setSelectedModel] = useState('sonar-pro');
+  const [availableModels, setAvailableModels] = useState<Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon?: string;
+  }>>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
-  const screenHeight = Dimensions.get('window').height;
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
-
-  // Available Perplexity models
-  const availableModels = [
-    {
-      id: 'sonar',
-      name: 'Sonar',
-      description: 'Lightweight, cost-effective search model',
-      category: 'Search',
-      icon: '🔍'
-    },
-    {
-      id: 'sonar-pro',
-      name: 'Sonar Pro',
-      description: 'Advanced search with complex queries support',
-      category: 'Search',
-      icon: '🔍+'
-    },
-    {
-      id: 'sonar-reasoning',
-      name: 'Sonar Reasoning',
-      description: 'Fast reasoning model for problem-solving',
-      category: 'Reasoning',
-      icon: '🧠'
-    },
-    {
-      id: 'sonar-reasoning-pro',
-      name: 'Sonar Reasoning Pro',
-      description: 'Precise reasoning powered by DeepSeek-R1',
-      category: 'Reasoning',
-      icon: '🧠+'
-    },
-    {
-      id: 'sonar-deep-research',
-      name: 'Sonar Deep Research',
-      description: 'Expert-level research model for comprehensive reports',
-      category: 'Research',
-      icon: '📊'
-    }
-  ];
 
   // Use centralized service management, but prefer external service if provided
   const {
@@ -151,10 +164,138 @@ const ChatScreen: React.FC<Props> = ({
     if (ragService && isInitialized) {
       loadChatHistory();
       loadChatSpecificDocuments();
-      // Load current model from RAG service
-      setSelectedModel(ragService.getCurrentPerplexityModel());
+      loadAvailableModels();
     }
   }, [ragService, isInitialized, selectedDocument]);
+
+  // Clear models cache when component unmounts or when needed
+  useEffect(() => {
+    return () => {
+      // Optional: Clear cache on unmount (uncomment if you want cache to clear when leaving chat)
+      // ModelsCache.clear();
+    };
+  }, []);
+
+  // Function to manually refresh models (bypassing cache)
+  const refreshModels = async () => {
+    ModelsCache.clear();
+    await loadAvailableModels();
+  };
+
+  // Load available models from database with caching
+  const loadAvailableModels = async () => {
+    if (!ragService) return;
+
+    // Check if we have valid cached data
+    const cachedModels = ModelsCache.get();
+    if (cachedModels) {
+      console.log('Loading models from cache...');
+      setAvailableModels(cachedModels);
+
+      // Update selected model if current one is not in the list
+      if (cachedModels.length > 0 && !cachedModels.find(m => m.id === selectedModel)) {
+        setSelectedModel(cachedModels[0].id);
+      }
+      return;
+    }
+
+    // Prevent multiple simultaneous requests
+    if (ModelsCache.isLoading) {
+      console.log('Models already loading, skipping duplicate request...');
+      return;
+    }
+
+    ModelsCache.isLoading = true;
+    setModelsLoading(true);
+
+    try {
+      console.log('Loading available models from database...');
+      const models = await ragService.getModels();
+
+      // Parse and transform models data
+      const transformedModels: Array<{
+        id: string;
+        name: string;
+        description: string;
+        category: string;
+        icon: string;
+      }> = [];
+
+      // Handle the response structure: array of objects with 'models' property
+      for (const modelRecord of models as any[]) {
+        try {
+          // Extract the models string from the record
+          let modelsData;
+          if (modelRecord.models && typeof modelRecord.models === 'string') {
+            // Parse the models string which contains the array
+            modelsData = eval(`(${modelRecord.models})`); // Using eval to handle the JavaScript object syntax
+          } else if (typeof modelRecord === 'string') {
+            // Fallback: if the entire record is a string
+            modelsData = eval(`(${modelRecord})`);
+          } else {
+            // Direct object
+            modelsData = [modelRecord];
+          }
+
+          // Process each model in the array
+          if (Array.isArray(modelsData)) {
+            for (const modelData of modelsData) {
+              // Add default icon based on category
+              const getIconForCategory = (category: string) => {
+                if (!category || typeof category !== 'string') return '🤖';
+                switch (category.toLowerCase()) {
+                  case 'search': return '🔍';
+                  case 'reasoning': return '🧠';
+                  case 'research': return '📚';
+                  default: return '🤖';
+                }
+              };
+
+              // Validate required fields
+              if (modelData.id && modelData.name && modelData.description && modelData.category) {
+                transformedModels.push({
+                  id: modelData.id,
+                  name: modelData.name,
+                  description: modelData.description,
+                  category: modelData.category,
+                  icon: getIconForCategory(modelData.category)
+                });
+              }
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing model record:', parseError, modelRecord);
+        }
+      }
+
+      // Cache the transformed models
+      ModelsCache.set(transformedModels);
+      setAvailableModels(transformedModels);
+      console.log(`Loaded and cached ${transformedModels.length} models from database`);
+
+      // Update selected model if current one is not in the list
+      if (transformedModels.length > 0 && !transformedModels.find(m => m.id === selectedModel)) {
+        setSelectedModel(transformedModels[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading models:', error);
+      // Fallback to a default model if database fetch fails
+      const fallbackModels = [{
+        id: 'sonar-pro',
+        name: 'Sonar Pro',
+        description: 'Default search model',
+        category: 'Search',
+        icon: '🔍'
+      }];
+
+      // Cache the fallback models too
+      ModelsCache.set(fallbackModels);
+      setAvailableModels(fallbackModels);
+    } finally {
+      ModelsCache.isLoading = false;
+      setModelsLoading(false);
+    }
+  };
 
   // Load documents specific to this chat
   const loadChatSpecificDocuments = async () => {
@@ -482,9 +623,6 @@ const ChatScreen: React.FC<Props> = ({
     const userMessage = inputText.trim();
     const messageId = Date.now().toString();
 
-    // Update the model in RAG service before sending message
-    ragService.updatePerplexityModel(selectedModel);
-
     // Add user message to UI immediately
     const newMessage: ChatMessage = {
       id: messageId,
@@ -658,25 +796,6 @@ const ChatScreen: React.FC<Props> = ({
             <Text style={styles.welcomeEmoji}>💬</Text>
           </View>
           <Text style={styles.welcomeTitle}>Start Chat.</Text>
-          {/* <Text style={styles.welcomeTitle}>
-            {chatSources.length > 0 ? chatSources[0].title : 'Chat with your sources'}
-          </Text>
-          <Text style={styles.welcomeSubtitle}>
-            {chatSources.length > 0
-              ? `The provided document${chatSources.length > 1 ? 's' : ''} outline${chatSources.length === 1 ? 's' : ''} ${chatSources.map(s => s.title).join(', ')}.`
-              : 'Ask questions about your uploaded documents.'
-            }
-          </Text> */}
-          {/* could be use in future */}
-          {/* <View style={styles.askSection}>
-            <Text style={styles.askLabel}>Ask {chatSources.length || 0} source{chatSources.length !== 1 ? 's' : ''}...</Text>
-            <View style={styles.sourceIndicator}>
-              <Text style={styles.sourceCount}>📄{chatSources.length}</Text>
-              <Text style={styles.modelIndicator}>
-                {availableModels.find(m => m.id === selectedModel)?.icon} {availableModels.find(m => m.id === selectedModel)?.name}
-              </Text>
-            </View>
-          </View> */}
         </View>
       ) : (
         <FlatList
@@ -706,9 +825,10 @@ const ChatScreen: React.FC<Props> = ({
           style={styles.modelSelectorButton}
           onPress={() => setShowModelSelector(true)}
         >
-          <Text style={styles.modelSelectorText}>
-            {availableModels.find(m => m.id === selectedModel)?.icon || '🤖'}
-          </Text>
+          <Image
+            style={styles.navIcon}
+            source={require('../../assets/icons/model.png')}
+          />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
@@ -718,7 +838,10 @@ const ChatScreen: React.FC<Props> = ({
           {isLoading ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.sendButtonText}>↗</Text>
+            <Image
+              style={styles.navIcon}
+              source={require('../../assets/icons/send.png')}
+            />
           )}
         </TouchableOpacity>
       </View>
@@ -789,7 +912,7 @@ const ChatScreen: React.FC<Props> = ({
             style={[styles.navTab, activeTab === 'chat' && styles.activeNavTab]}
             onPress={() => setActiveTab('chat')}
           >
-              <Image
+            <Image
               style={styles.navIcon}
               source={require('../../assets/icons/chat-fill.png')}
             />
@@ -960,61 +1083,91 @@ const ChatScreen: React.FC<Props> = ({
           <View style={styles.modalOverlay}>
             <View style={styles.modelSelectorModal}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select AI Model</Text>
-                <TouchableOpacity
-                  style={styles.modalCloseButton}
-                  onPress={() => setShowModelSelector(false)}
-                >
-                  <Text style={styles.modalCloseText}>✕</Text>
-                </TouchableOpacity>
+                <View style={styles.modalHeaderRight}>
+                  <TouchableOpacity
+                    onPress={refreshModels}
+                    disabled={modelsLoading}
+                  >
+                    <Text>
+                      {modelsLoading ? <Image
+                        style={styles.rotatingIcon}
+                        source={require('../../assets/icons/refresh.png')}
+                      /> : <Image
+                        style={styles.refreshIcon}
+                        source={require('../../assets/icons/refresh.png')}
+                      />}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalCloseButton}
+                    onPress={() => setShowModelSelector(false)}
+                  >
+                   <Image
+                        style={styles.refreshIcon}
+                        source={require('../../assets/icons/x.png')}
+                      />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                <Text style={styles.modelCategoryTitle}>Available Models</Text>
 
-                {availableModels.map((model) => (
-                  <TouchableOpacity
-                    key={model.id}
-                    style={[
-                      styles.modelOption,
-                      selectedModel === model.id && styles.selectedModelOption
-                    ]}
-                    onPress={() => {
-                      setSelectedModel(model.id);
-                      setShowModelSelector(false);
-                    }}
-                  >
-                    <View style={styles.modelIcon}>
-                      <Text style={styles.modelIconText}>{model.icon}</Text>
-                    </View>
-                    <View style={styles.modelInfo}>
-                      <View style={styles.modelHeader}>
-                        <Text style={styles.modelName}>{model.name}</Text>
-                        <View style={styles.modelCategoryBadge}>
-                          <Text style={styles.modelCategoryText}>{model.category}</Text>
+                {modelsLoading ? (
+                  <View style={styles.modelsLoadingContainer}>
+                    <ActivityIndicator size="small" color="#007AFF" />
+                    <Text style={styles.modelsLoadingText}>Loading models...</Text>
+                  </View>
+                ) : availableModels.length === 0 ? (
+                  <View style={styles.modelsEmptyContainer}>
+                    <Text style={styles.modelsEmptyText}>No models available</Text>
+                  </View>
+                ) : (
+                  availableModels.map((model) => (
+                    <TouchableOpacity
+                      key={model.id}
+                      style={[
+                        styles.modelOption,
+                        selectedModel === model.id && styles.selectedModelOption
+                      ]}
+                      onPress={() => {
+                        setSelectedModel(model.id);
+                        setShowModelSelector(false);
+                      }}
+                    >
+                      <View style={styles.modelInfo}>
+                        <View style={styles.modelHeader}>
+                          <Text style={styles.modelName}>{model.name}</Text>
+                          <View style={styles.modelCategoryBadge}>
+                            <Text style={styles.modelCategoryText}>{model.category}</Text>
+                          </View>
                         </View>
+                        <Text style={styles.modelDescription}>{model.description}</Text>
                       </View>
-                      <Text style={styles.modelDescription}>{model.description}</Text>
-                    </View>
-                    {selectedModel === model.id && (
-                      <View style={styles.selectedIndicator}>
-                        <Text style={styles.selectedIndicatorText}>✓</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                    </TouchableOpacity>
+                  ))
+                )}
 
                 <View style={styles.modelInfoSection}>
                   <Text style={styles.modelInfoTitle}>Model Categories:</Text>
-                  <Text style={styles.modelInfoText}>
-                    <Text style={styles.modelInfoBold}>Search:</Text> Best for quick factual queries and information retrieval
-                  </Text>
-                  <Text style={styles.modelInfoText}>
-                    <Text style={styles.modelInfoBold}>Reasoning:</Text> Ideal for complex analysis and multi-step problem solving
-                  </Text>
-                  <Text style={styles.modelInfoText}>
-                    <Text style={styles.modelInfoBold}>Research:</Text> Perfect for comprehensive reports and in-depth analysis
-                  </Text>
+                  {availableModels.length > 0 && (
+                    <>
+                      {[...new Set(availableModels.map(m => m.category))].map(category => (
+                        <Text key={category} style={styles.modelInfoText}>
+                          <Text style={styles.modelInfoBold}>{category}:</Text> {
+                            category.toLowerCase() === 'search' ? 'Best for quick factual queries and information retrieval' :
+                              category.toLowerCase() === 'reasoning' ? 'Ideal for complex analysis and multi-step problem solving' :
+                                category.toLowerCase() === 'research' ? 'Perfect for comprehensive reports and in-depth analysis' :
+                                  'Advanced AI model for various tasks'
+                          }
+                        </Text>
+                      ))}
+                    </>
+                  )}
+                  {availableModels.length === 0 && !modelsLoading && (
+                    <Text style={styles.modelInfoText}>
+                      Models will be loaded from your database.
+                    </Text>
+                  )}
                 </View>
               </ScrollView>
             </View>
@@ -1288,21 +1441,18 @@ const styles = StyleSheet.create({
   modelSelectorButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: '#3a3a3c',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#555',
   },
   modelSelectorText: {
     fontSize: 16,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    display: 'flex',
+    width: 45,
+    height: 45,
+    borderRadius: 10,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1335,8 +1485,14 @@ const styles = StyleSheet.create({
   },
   navIcon: {
     marginBottom: 4,
-    height: 30,
-    width: 30,
+    height: 25,
+    width: 25,
+  },
+  rotatingIcon: {
+    transform: [{ rotate: '360deg' }],
+    marginBottom: 4,
+    height: 25,
+    width: 25,
   },
   navLabel: {
     fontSize: 12,
@@ -1450,6 +1606,28 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#3a3a3c',
+  },
+  modalHeaderLeft: {
+    flex: 1,
+  },
+  modalHeaderRight: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  refreshIcon: {
+    height: 20,
+    width: 20
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#3a3a3c',
+  },
+  refreshButtonText: {
+    fontSize: 16,
   },
   modalTitle: {
     fontSize: 20,
@@ -1619,6 +1797,11 @@ const styles = StyleSheet.create({
     color: 'white',
     marginBottom: 16,
   },
+  cacheIndicator: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#666',
+  },
   modelOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1712,6 +1895,29 @@ const styles = StyleSheet.create({
   modelInfoBold: {
     fontWeight: '600',
     color: '#007AFF',
+  },
+
+  // Model loading states
+  modelsLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modelsLoadingText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#999',
+  },
+  modelsEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modelsEmptyText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
   },
 });
 

@@ -60,6 +60,32 @@ class AppwriteAuth {
   }
   
   /**
+   * Update user name
+   */
+  async updateUserName(name: string): Promise<User> {
+    this.checkInitialized();
+    // If AuthModule doesn't have updateName, we'll need to use the client directly
+    const { appwriteClient } = await import('./AppwriteClient');
+    const account = appwriteClient.getAccount();
+    const updatedUser = await account.updateName(name);
+    
+    // Transform Appwrite user to our User interface
+    return {
+      id: updatedUser.$id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      emailVerification: updatedUser.emailVerification,
+      phone: updatedUser.phone,
+      phoneVerification: updatedUser.phoneVerification,
+      registration: updatedUser.registration,
+      status: updatedUser.status ? 'active' : 'inactive',
+      passwordUpdate: typeof updatedUser.passwordUpdate === 'number' ? updatedUser.passwordUpdate : 0,
+      prefs: updatedUser.prefs,
+      avatarUrl: '',
+    };
+  }
+  
+  /**
    * Sign out current user
    */
   async signOut(): Promise<void> {

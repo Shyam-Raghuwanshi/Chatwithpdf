@@ -29,7 +29,7 @@ export interface Chat {
   messageType: 'user' | 'assistant' | 'system' | 'legacy'; // Type of message (required in database)
   content: string; // The actual message content (required in database)
   createdAt: Date;
-  
+
   // Enhanced fields (optional) - for future use
   metadata?: {
     model?: string; // AI model used
@@ -53,6 +53,13 @@ export interface Plan {
   durationDays: number;
 }
 
+export interface Model {
+  id: string,
+  name: string,
+  description: string,
+  category: string
+}
+
 export interface AppwriteConfig {
   endpoint: string;
   projectId: string;
@@ -71,6 +78,7 @@ export class AppwriteDB {
     DOCUMENTS: '68a75b180016b4e52d00',
     CHATS: '68a7662100185c305b45',
     PLANS: '68a766cb0021ae9a983c',
+    MODELS: '68c6c8fe0021f8bb17ff'
   };
 
   constructor(config: AppwriteConfig) {
@@ -83,118 +91,6 @@ export class AppwriteDB {
     this.databases = appwriteClient.getDatabases();
     this.tablesDB = new TablesDB(appwriteClient.getClient());
     this.account = appwriteClient.getAccount();
-  }
-
-  /**
-   * Test collection access and provide detailed error information
-   */
-  async testCollectionAccess(): Promise<void> {
-    console.log('\n=== COLLECTION ACCESS TEST ===');
-
-    const collections = [
-      { id: this.COLLECTIONS.DOCUMENTS, name: 'Documents' },
-      { id: this.COLLECTIONS.CHATS, name: 'Chats' },
-      { id: this.COLLECTIONS.PLANS, name: 'Plans' },
-      { id: this.COLLECTIONS.USER_PROFILES, name: 'UserProfile' },
-    ];
-
-    for (const collection of collections) {
-      try {
-        console.log(`\nTesting ${collection.name} table (${collection.id})...`);
-        const result = await this.tablesDB.listRows(
-          this.config.databaseId,
-          collection.id,
-          [Query.limit(1)]
-        );
-        console.log(`✅ ${collection.name}: Access OK (${result.rows.length} rows found)`);
-      } catch (error: any) {
-        console.log(`❌ ${collection.name}: Access FAILED`);
-        console.log(`   Error: ${error.message}`);
-
-        if (error.message?.includes('missing scopes') || error.message?.includes('guests')) {
-          console.log(`   ⚠️  PERMISSION ISSUE: Table permissions not configured properly`);
-          console.log(`   To fix this:`);
-          console.log(`   1. Go to Appwrite Console`);
-          console.log(`   2. Navigate to Databases > ${this.config.databaseId}`);
-          console.log(`   3. Click on "${collection.name}" table`);
-          console.log(`   4. Go to Settings > Permissions`);
-          console.log(`   5. Add these permissions:`);
-          console.log(`      - Read: Any (for guests) or Users (for authenticated only)`);
-          console.log(`      - Create: Users (for authenticated users)`);
-          console.log(`      - Update: Users (for authenticated users)`);
-          console.log(`      - Delete: Users (for authenticated users)`);
-        } else if (error.message?.includes('Table with the requested ID could not be found')) {
-          console.log(`   ⚠️  TABLE NOT FOUND: Table ID "${collection.id}" doesn't exist`);
-          console.log(`   Please check your table IDs in the Appwrite Console`);
-        }
-      }
-    }
-    console.log('\n=== END COLLECTION ACCESS TEST ===\n');
-  }
-
-  /**
-   * Test basic document storage to verify table schema
-   */
-  async testDocumentSchema(): Promise<void> {
-    console.log('\n=== DOCUMENT SCHEMA TEST ===');
-    
-    try {
-      // Test with minimal required fields only
-      const testData = {
-        userId: 'test-user-id',
-        title: 'Test Document',
-      };
-
-      console.log('Testing document storage with minimal data:', testData);
-      
-      const result = await this.tablesDB.createRow(
-        this.config.databaseId,
-        this.COLLECTIONS.DOCUMENTS,
-        ID.unique(),
-        {
-          ...testData,
-          createdAt: new Date().toISOString(),
-        }
-      );
-
-      console.log('✅ Document schema test PASSED');
-      console.log('   Created test document:', result.$id);
-      
-      // Clean up test document
-      await this.tablesDB.deleteRow(
-        this.config.databaseId,
-        this.COLLECTIONS.DOCUMENTS,
-        result.$id
-      );
-      console.log('   Test document cleaned up');
-
-    } catch (error: any) {
-      console.log('❌ Document schema test FAILED');
-      console.log('   Error:', error.message);
-      
-      if (error.message.includes('Unknown attribute')) {
-        console.log('   ⚠️  SCHEMA ISSUE: Your table is missing required columns');
-        console.log('   Please ensure your Documents table has these columns:');
-        console.log('     - userId (String)');
-        console.log('     - title (String)');
-        console.log('     - embeddingId (String, optional)');
-        console.log('     - createdAt (String/DateTime)');
-      }
-    }
-    
-    console.log('\n=== END DOCUMENT SCHEMA TEST ===\n');
-  }
-
-  /**
-   * Test authentication status
-   */
-  async testAuthentication(): Promise<{ isAuthenticated: boolean; user?: any; error?: string }> {
-    try {
-      const user = await this.account.get();
-      return { isAuthenticated: true, user };
-    } catch (error: any) {
-      return { isAuthenticated: false, error: error.message };
-    }
   }
 
   /**
@@ -299,13 +195,13 @@ export class AppwriteDB {
     } catch (error) {
       console.error('Error creating/updating user profile:', error);
       console.error('Profile data that failed:', JSON.stringify(profileData, null, 2));
-      
+
       if (error instanceof Error && error.message.includes('Unknown attribute')) {
         const attributeMatch = error.message.match(/Unknown attribute: "([^"]+)"/);
         const unknownAttribute = attributeMatch ? attributeMatch[1] : 'unknown';
         throw new Error(`Database schema error: The user profiles table is missing the "${unknownAttribute}" column. Please add this column to your Appwrite database table.`);
       }
-      
+
       throw new Error(`Failed to create/update user profile: ${error}`);
     }
   }
@@ -369,14 +265,14 @@ export class AppwriteDB {
     } catch (error) {
       console.error('Error storing document:', error);
       console.error('Document data that failed:', JSON.stringify(documentData, null, 2));
-      
+
       // Provide more specific error information
       if (error instanceof Error && error.message.includes('Unknown attribute')) {
         const attributeMatch = error.message.match(/Unknown attribute: "([^"]+)"/);
         const unknownAttribute = attributeMatch ? attributeMatch[1] : 'unknown';
         throw new Error(`Database schema error: The table is missing the "${unknownAttribute}" column. Please add this column to your Appwrite database table or remove it from the data being stored.`);
       }
-      
+
       throw new Error(`Failed to store document: ${error}`);
     }
   }
@@ -467,13 +363,13 @@ export class AppwriteDB {
     } catch (error) {
       console.error('Error storing chat message:', error);
       console.error('Chat data that failed:', JSON.stringify(chatData, null, 2));
-      
+
       if (error instanceof Error && error.message.includes('Unknown attribute')) {
         const attributeMatch = error.message.match(/Unknown attribute: "([^"]+)"/);
         const unknownAttribute = attributeMatch ? attributeMatch[1] : 'unknown';
         throw new Error(`Database schema error: The chat table is missing the "${unknownAttribute}" column. Please add this column to your Appwrite database table.`);
       }
-      
+
       throw new Error(`Failed to store chat message: ${error}`);
     }
   }
@@ -490,7 +386,7 @@ export class AppwriteDB {
   ): Promise<Chat> {
     // Convert legacy format to new conversation-based format
     const conversationId = ID.unique();
-    
+
     // Store as a single legacy entry with combined content
     const chatData: Omit<Chat, '$id'> = {
       userId,
@@ -636,10 +532,10 @@ export class AppwriteDB {
       );
 
       const chats = result.rows.map(chat => this.transformChat(chat));
-      
+
       // Group by conversationId
       const conversationMap = new Map<string, Chat[]>();
-      
+
       chats.forEach(chat => {
         const convId = chat.conversationId || 'legacy';
         if (!conversationMap.has(convId)) {
@@ -668,7 +564,7 @@ export class AppwriteDB {
   async updateTokenUsage(userId: string, tokensUsed: number): Promise<void> {
     try {
       let profile = await this.getUserProfile(userId);
-      
+
       // If profile doesn't exist, create it with default values
       if (!profile) {
         console.log(`User profile not found for ${userId}, creating new profile...`);
@@ -679,7 +575,7 @@ export class AppwriteDB {
       }
 
       const newTokenRemaining = Math.max(0, profile.tokenRemaining - tokensUsed);
-      
+
       await this.tablesDB.updateRow(
         this.config.databaseId,
         this.COLLECTIONS.USER_PROFILES,
@@ -689,7 +585,7 @@ export class AppwriteDB {
           updatedAt: new Date().toISOString(),
         }
       );
-      
+
       console.log(`Updated token usage for user ${userId}: ${profile.tokenRemaining} - ${tokensUsed} = ${newTokenRemaining}`);
     } catch (error) {
       console.error('Error updating token usage:', error);
@@ -703,7 +599,7 @@ export class AppwriteDB {
   async checkTokenLimit(userId: string, requiredTokens: number): Promise<boolean> {
     try {
       let profile = await this.getUserProfile(userId);
-      
+
       // If profile doesn't exist, create it with default values
       if (!profile) {
         console.log(`User profile not found for ${userId} during token check, creating new profile...`);
@@ -715,7 +611,7 @@ export class AppwriteDB {
 
       const hasEnoughTokens = profile.tokenRemaining >= requiredTokens;
       console.log(`Token check for user ${userId}: ${profile.tokenRemaining} >= ${requiredTokens} = ${hasEnoughTokens}`);
-      
+
       return hasEnoughTokens;
     } catch (error) {
       console.error('Error checking token limit:', error);
@@ -759,13 +655,30 @@ export class AppwriteDB {
         this.config.databaseId,
         this.COLLECTIONS.PLANS
       );
-
       return result.rows.map(plan => this.transformPlan(plan));
     } catch (error) {
       console.error('Error getting plans:', error);
       throw new Error(`Failed to get plans: ${error}`);
     }
   }
+
+  /**
+   * Get available models
+   */
+  async getModels(): Promise<import('./AppwriteDB').Model[]> {
+    try {
+      const result = await this.tablesDB.listRows(
+        this.config.databaseId,
+        this.COLLECTIONS.MODELS
+      );
+      console.log("Models fetched from DB:", result.rows);
+      return result.rows.map(model => this.transformModel(model));
+    } catch (error) {
+      console.error('Error getting plans:', error);
+      throw new Error(`Failed to get plans: ${error}`);
+    }
+  }
+
 
   // Transform functions to convert Appwrite documents to typed interfaces
   private transformUserProfile(doc: any): UserProfile {
@@ -808,16 +721,22 @@ export class AppwriteDB {
     };
   }
 
+  private transformModel(doc: any): Model {
+    return {
+      ...doc
+    }
+  }
+
   /**
    * Ensure user profile exists, create if not
    */
   async ensureUserProfile(userId: string): Promise<UserProfile> {
     try {
       let profile = await this.getUserProfile(userId);
-      
+
       if (!profile) {
         console.log(`Creating new user profile for user: ${userId}`);
-        
+
         try {
           profile = await this.createOrUpdateUserProfile(userId, {
             plan: 'free',
@@ -826,7 +745,7 @@ export class AppwriteDB {
           console.log(`✅ Successfully created user profile for: ${userId}`);
         } catch (createError) {
           console.error('Failed to create user profile, attempting simple creation:', createError);
-          
+
           // Fallback: try creating with minimal data
           const newRow = await this.tablesDB.createRow(
             this.config.databaseId,
@@ -840,12 +759,12 @@ export class AppwriteDB {
               updatedAt: new Date().toISOString(),
             }
           );
-          
+
           profile = this.transformUserProfile(newRow);
           console.log(`✅ Successfully created user profile with fallback method for: ${userId}`);
         }
       }
-      
+
       return profile;
     } catch (error) {
       console.error('Error ensuring user profile exists:', error);
@@ -865,7 +784,7 @@ export class AppwriteDB {
    */
   private sanitizeDataForTable(data: any, tableType: 'document' | 'chat' | 'userProfile'): any {
     const sanitized = { ...data };
-    
+
     // Convert Date objects to ISO strings
     Object.keys(sanitized).forEach(key => {
       if (sanitized[key] instanceof Date) {
@@ -886,7 +805,7 @@ export class AppwriteDB {
   async getTableInfo(tableId: string): Promise<void> {
     try {
       console.log(`\n=== TABLE INFO FOR ${tableId} ===`);
-      
+
       // Try to get one row to see what fields are available
       const result = await this.tablesDB.listRows(
         this.config.databaseId,
@@ -903,7 +822,7 @@ export class AppwriteDB {
       } else {
         console.log('No rows found in table - cannot determine structure');
       }
-      
+
       console.log(`=== END TABLE INFO ===\n`);
     } catch (error: any) {
       console.log(`Error getting table info: ${error.message}`);

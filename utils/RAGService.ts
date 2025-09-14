@@ -88,20 +88,6 @@ export class RAGService {
   }
 
   /**
-   * Test database authentication
-   */
-  async testDatabaseAuth(): Promise<{ isAuthenticated: boolean; user?: any; error?: string }> {
-    return this.appwriteDB.testAuthentication();
-  }
-
-  /**
-   * Test collection access and permissions
-   */
-  async testCollectionAccess(): Promise<void> {
-    return this.appwriteDB.testCollectionAccess();
-  }
-
-  /**
    * Try to create OAuth session for database access
    */
   async createDatabaseOAuthSession(provider: string = 'google'): Promise<void> {
@@ -121,15 +107,15 @@ export class RAGService {
   async initialize(forceTest: boolean = false): Promise<void> {
     try {
       console.log('🚀 RAG: Ultra-fast initialization starting...');
-      
+
       // Skip expensive connection tests completely for speed
       if (!forceTest) {
         console.log('⚡ RAG: Skipping connection tests for speed');
-        
+
         // Just initialize collection with default vector size - super fast
         let vectorSize = 1536; // Default for voyage-large-2
         await this.vectorDB.initializeCollection(this.COLLECTION_NAME, vectorSize);
-        
+
         this.isInitialized = true;
         this.lastInitializationTime = Date.now();
         console.log('✅ RAG: Ultra-fast initialization completed in <100ms');
@@ -138,12 +124,12 @@ export class RAGService {
 
       // Only do full initialization if explicitly requested
       console.log('🔍 RAG: Full initialization with tests...');
-      
+
       // Skip expensive connection tests if recently initialized (within 5 minutes)
       const now = Date.now();
       const fiveMinutes = 5 * 60 * 1000;
       const recentlyInitialized = (now - this.lastInitializationTime) < fiveMinutes;
-      
+
       if (this.isInitialized && recentlyInitialized) {
         console.log('♻️ RAG: Already initialized recently, skipping tests');
         return;
@@ -170,7 +156,7 @@ export class RAGService {
       } catch (error) {
         console.warn('Could not get embedding dimension, using default (1536):', error);
       }
-      
+
       await this.vectorDB.initializeCollection(this.COLLECTION_NAME, vectorSize);
 
       this.isInitialized = true;
@@ -193,10 +179,10 @@ export class RAGService {
   ): Promise<ProcessDocumentResult> {
     try {
       console.log(`Processing document: ${documentTitle}${chatId ? ` (for chat: ${chatId})` : ''}`);
-      
+
       // Ensure user profile exists before processing
       await this.appwriteDB.ensureUserProfile(userId);
-      
+
       // Check if user has enough tokens (rough estimation)
       const estimatedTokens = Math.ceil(textContent.length / 4) * 0.1; // Rough estimation for processing cost
       // const hasTokens = await this.appwriteDB.checkTokenLimit(userId, estimatedTokens);
@@ -306,7 +292,7 @@ export class RAGService {
   ): Promise<ChatResponse> {
     try {
       console.log(`Processing chat message for user: ${userId}${chatId ? ` (chat: ${chatId})` : ''}`);
-      
+
       // Ensure user profile exists before processing
       await this.appwriteDB.ensureUserProfile(userId);
 
@@ -319,7 +305,7 @@ export class RAGService {
 
       // Try vector search first, fall back to Perplexity if VoyageAI is rate limited
       let chatResponse: ChatResponse;
-      
+
       try {
         // Step 1: Generate embedding for the query
         console.log('🔍 Generating query embedding with VoyageAI...');
@@ -343,7 +329,7 @@ export class RAGService {
         } else {
           // Search across user's documents with optional chat filtering
           const searchFilters: Record<string, any> = { userId };
-          
+
           // If chatId is provided, search only within that chat's documents
           if (chatId) {
             searchFilters.chatId = chatId;
@@ -364,8 +350,8 @@ export class RAGService {
         }));
 
         const perplexityResponse = await this.generateResponseWithPerplexity(
-          message, 
-          relevantChunks, 
+          message,
+          relevantChunks,
           documentId
         );
 
@@ -389,7 +375,7 @@ export class RAGService {
         // If VoyageAI is rate limited, fall back to Perplexity with document content
         if (embeddingError.message.includes('429') || embeddingError.message.includes('Rate limit')) {
           console.log('🚨 VoyageAI rate limited, falling back to Perplexity with document content...');
-          
+
           chatResponse = await this.chatWithPerplexityFallback(
             userId,
             message,
@@ -397,7 +383,7 @@ export class RAGService {
             estimatedTokens,
             chatId
           );
-          
+
           console.log('✅ Successfully used Perplexity fallback for chat');
         } else {
           throw embeddingError;
@@ -417,7 +403,7 @@ export class RAGService {
       await this.appwriteDB.updateTokenUsage(userId, chatResponse.tokensUsed);
 
       return chatResponse;
-      
+
     } catch (error) {
       console.error('Error in chat:', error);
       throw error;
@@ -493,7 +479,7 @@ export class RAGService {
       };
 
       const result = await this.perplexityAI.generateAnswer(question, context);
-      
+
       if (result.success && result.response) {
         return result;
       } else {
@@ -518,14 +504,14 @@ export class RAGService {
     try {
       let documentContent = "";
       let documentTitle = "User Documents";
-      
+
       if (documentId) {
         // Get specific document
         const document = await this.appwriteDB.getDocument(documentId);
         if (document && document.userId === userId) {
           documentTitle = document.title;
           documentContent = `Document: ${document.title}\nCreated: ${document.createdAt.toLocaleDateString()}`;
-          
+
           // Note: Without being able to retrieve the actual document content,
           // we'll use the document metadata and let Perplexity work with the question
         }
@@ -540,23 +526,23 @@ export class RAGService {
 
       // Get recent chat history for context
       const recentChats = await this.appwriteDB.getChatHistory(userId, documentId);
-      
+
       // Group chats by conversationId and build Q&A pairs
-      const chatHistory: Array<{question: string, answer: string}> = [];
-      const conversationMap = new Map<string, {user?: string, assistant?: string}>();
-      
+      const chatHistory: Array<{ question: string, answer: string }> = [];
+      const conversationMap = new Map<string, { user?: string, assistant?: string }>();
+
       // Process chats to pair user messages with assistant responses
       recentChats.slice(-6).forEach(chat => {
         const conversation = conversationMap.get(chat.conversationId) || {};
-        
+
         if (chat.messageType === 'user') {
           conversation.user = chat.content;
         } else if (chat.messageType === 'assistant') {
           conversation.assistant = chat.content;
         }
-        
+
         conversationMap.set(chat.conversationId, conversation);
-        
+
         // If we have both user and assistant messages, add to history
         if (conversation.user && conversation.assistant) {
           chatHistory.push({
@@ -567,21 +553,21 @@ export class RAGService {
           conversationMap.set(chat.conversationId, {});
         }
       });
-      
+
       // Take the last 3 complete conversations
       const recentHistory = chatHistory.slice(-3);
 
       // Build context for Perplexity
       const context: ChatContext = {
         documentTitle,
-        documentContent: documentContent.length > 8000 
+        documentContent: documentContent.length > 8000
           ? documentContent.substring(0, 8000) + "\n\n[Content truncated due to length]"
           : documentContent,
         chatHistory: recentHistory
       };
 
       const result = await this.perplexityAI.generateAnswer(message, context);
-      
+
       if (!result.success || !result.response) {
         throw new Error(result.error || 'Failed to generate response with Perplexity fallback');
       }
@@ -602,7 +588,7 @@ export class RAGService {
 
     } catch (error) {
       console.error('Error in Perplexity fallback:', error);
-      
+
       // Last resort: simple error response
       return {
         response: "I'm experiencing some technical difficulties accessing your documents right now. This might be due to API rate limits. Please try again in a few moments. If the issue persists, the document analysis service may need some time to reset.",
@@ -618,18 +604,18 @@ export class RAGService {
   private async generateResponse(query: string, context: string): Promise<string> {
     // This is a placeholder implementation
     // In a real application, you would integrate with OpenAI, Claude, or another LLM
-    
+
     if (!context.trim()) {
       return "I couldn't find relevant information in your documents to answer that question. Please make sure you've uploaded a relevant document.";
     }
 
     // Simple keyword-based response generation
     const queryLower = query.toLowerCase();
-    
+
     if (queryLower.includes('summary') || queryLower.includes('summarize')) {
       return `Based on your document, here's a summary:\n\n${context.substring(0, 500)}...`;
     }
-    
+
     if (queryLower.includes('what') || queryLower.includes('how') || queryLower.includes('why')) {
       return `Based on the relevant sections from your document:\n\n${context.substring(0, 800)}\n\nThis information should help answer your question about: "${query}"`;
     }
@@ -663,24 +649,6 @@ export class RAGService {
         collections: [],
       };
     }
-  }
-
-  /**
-   * Update Perplexity model configuration
-   */
-  updatePerplexityModel(model: string): void {
-    this.config.perplexity = {
-      ...this.config.perplexity,
-      model: model
-    };
-    this.perplexityAI.updateConfig({ model });
-  }
-
-  /**
-   * Get current Perplexity model
-   */
-  getCurrentPerplexityModel(): string {
-    return this.config.perplexity?.model || 'sonar-pro';
   }
 
   /**
@@ -733,6 +701,24 @@ export class RAGService {
       console.error('Error getting user token stats:', error);
       throw error;
     }
+  }
+
+  /**
+   * Get available plans
+   */
+  async getPlans(): Promise<import('./AppwriteDB').Plan[]> {
+    return this.appwriteDB.getPlans();
+  }
+
+  /**
+   * Get user profile
+   */
+  async getUserProfile(userId: string): Promise<UserProfile | null> {
+    return this.appwriteDB.getUserProfile(userId);
+  }
+
+  async getModels(): Promise<import('./AppwriteDB').Model[]> {
+    return this.appwriteDB.getModels();
   }
 }
 
