@@ -80,11 +80,11 @@ const BillingScreen: React.FC<BillingScreenProps> = ({ userId, onBack }) => {
                 const subscriptionEndDate = new Date();
                 subscriptionEndDate.setDate(subscriptionEndDate.getDate() + plan.durationDays);
                 
-                await ragService.createOrUpdateUserProfile(userId, {
-                  plan: plan.name.toLowerCase() as 'free' | 'pro' | 'enterprise',
-                  tokenRemaining: plan.tokensLimit,
-                  subscriptionValidTill: subscriptionEndDate,
-                });
+                // await ragService.createOrUpdateUserProfile(userId, {
+                //   plan: plan.name.toLowerCase() as 'free' | 'pro' | 'enterprise',
+                //   tokenRemaining: plan.tokensLimit,
+                //   subscriptionValidTill: subscriptionEndDate,
+                // });
                 
                 Alert.alert('Success', `Successfully subscribed to ${plan.name}!`);
                 await loadData(); // Refresh data
