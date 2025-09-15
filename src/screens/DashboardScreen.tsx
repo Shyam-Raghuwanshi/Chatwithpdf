@@ -422,7 +422,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   if (currentScreen === 'profile') {
     return (
       <SafeAreaView style={styles.container}>
-        <ProfileScreen 
+        <ProfileScreen
           user={user}
           onBack={() => setCurrentScreen('settings')}
         />
@@ -434,7 +434,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   if (currentScreen === 'billing') {
     return (
       <SafeAreaView style={styles.container}>
-        <BillingScreen 
+        <BillingScreen
           userId={user.id}
           onBack={() => setCurrentScreen('settings')}
         />
@@ -600,30 +600,29 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             <TouchableOpacity activeOpacity={1}>
               <View style={styles.dropdownHeader}>
                 <TouchableOpacity onPress={hideSourceDropdown} style={styles.closeButton}>
-                  <Text style={styles.closeButtonText}>✕</Text>
+                  <Image
+                    source={require('../../assets/icons/x.png')}
+                    style={{ width: 15, height: 15 }}
+                    resizeMode="contain"
+                  />
                 </TouchableOpacity>
-                <View style={styles.addSourceIcon}>
-                  <Text style={styles.addSourceEmoji}>📄</Text>
+                <View>
+                  <Image
+                    source={require('../../assets/icons/file-fill.png')}
+                    style={{ width: 40, height: 40 }}
+                    resizeMode="contain"
+                  />
                 </View>
                 <Text style={styles.dropdownTitle}>Add Source</Text>
                 <Text style={styles.dropdownSubtitle}>
-                  Sources let NotebookLM base its responses on the information that matters most to you.
+                  Sources let Paper base its responses on the information that matters most to you.
                 </Text>
               </View>
 
               <View style={styles.sourceOptions}>
                 <TouchableOpacity style={styles.sourceOption} onPress={handlePdfUpload}>
-                  <Text style={styles.sourceOptionText}>Upload PDF</Text>
+                  <Text style={styles.sourceOptionText}>Upload Document</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sourceOption} onPress={handleWebsite}>
-                  <Text style={styles.sourceOptionText}>Website</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sourceOption} onPress={handleYoutube}>
-                  <Text style={styles.sourceOptionText}>YouTube</Text>
-                </TouchableOpacity>
-
                 <TouchableOpacity style={styles.sourceOption} onPress={handleCopiedText}>
                   <Text style={styles.sourceOptionText}>Copied text</Text>
                 </TouchableOpacity>
@@ -1040,16 +1039,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 60,
   },
-  notebookIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    backgroundColor: '#3a3a3c',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    position: 'relative',
-  },
   laptopScreen: {
     width: 36,
     height: 24,
@@ -1127,14 +1116,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#2c2c2e',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: 40,
-    minHeight: 400,
+    // minHeight: 100,
   },
   dropdownHeader: {
     alignItems: 'center',
     padding: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3a3a3c',
   },
   closeButton: {
     position: 'absolute',
@@ -1142,8 +1128,6 @@ const styles = StyleSheet.create({
     right: 16,
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#3a3a3c',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1151,19 +1135,6 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 16,
     fontFamily: FONT_FAMILY.bold,
-  },
-  addSourceIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
-    backgroundColor: '#4a7dff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  addSourceEmoji: {
-    fontSize: 24,
-    color: 'white',
   },
   dropdownTitle: {
     fontSize: 20,
@@ -1369,7 +1340,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
-  searchDocumentTitle: {    
+  searchDocumentTitle: {
     fontSize: 16,
     fontFamily: FONT_FAMILY.semiBold,
     color: 'white',

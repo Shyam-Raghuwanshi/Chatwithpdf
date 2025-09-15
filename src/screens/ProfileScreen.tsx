@@ -17,12 +17,12 @@ interface ProfileScreenProps {
 }
 
 export default function ProfileScreen({ user, onBack }: ProfileScreenProps) {
-  const [fullName, setFullName] = useState(user?.name);
+  const [fullName] = useState(user?.name);
 
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'Please contact support to delete your account.\n\nEmail: support@chatwithpdf.com',
+      'Please contact support to delete your account.\n\nEmail: support@paper.com',
       [{ text: 'OK', style: 'default' }]
     );
   };
@@ -50,9 +50,8 @@ export default function ProfileScreen({ user, onBack }: ProfileScreenProps) {
             <Text style={styles.sectionLabel}>Full name</Text>
             <TextInput
               style={styles.textInput}
+              readOnly={true}
               value={fullName}
-              onChangeText={setFullName}
-              placeholder="Enter your full name"
               placeholderTextColor="#666666"
             />
           </View>
@@ -134,6 +133,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     borderWidth: 1,
     borderColor: '#404040',
+    opacity: 0.7,
   },
   updateButton: {
     backgroundColor: '#2a2a2a',
