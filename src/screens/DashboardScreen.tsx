@@ -19,8 +19,10 @@ import PdfScreen from './PdfScreen';
 import SettingsScreen from './SettingsScreen';
 import ProfileScreen from './ProfileScreen';
 import BillingScreen from './BillingScreen';
+import WordTestScreen from './WordTestScreen';
 import type { User } from '../../types/AuthModule';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
+import WordTextExtractor from '../../utils/WordTextExtractor';
 import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
@@ -35,7 +37,7 @@ interface DashboardScreenProps {
 const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => {
 
   const [loading, setLoading] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings' | 'search' | 'profile' | 'billing'>('dashboard');
+  const [currentScreen, setCurrentScreen] = useState<'dashboard' | 'pdf' | 'settings' | 'search' | 'profile' | 'billing' | 'wordtest'>('dashboard');
   const [showDropdown, setShowDropdown] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -259,16 +261,16 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     }
   };
 
-  const handlePdfUpload = async () => {
+  const handleDocumentUpload = async () => {
     hideSourceDropdown();
     setUploading(true);
 
     try {
-      console.log("Starting PDF document picker...");
+      console.log("Starting document picker...");
 
-      // Use document picker to select PDF from device
+      // Use document picker to select PDF, DOC, or DOCX from device
       const selectedDocument = await DocumentPicker.pickSingle({
-        type: [DocumentPicker.types.pdf],
+        type: [DocumentPicker.types.pdf, DocumentPicker.types.doc, DocumentPicker.types.docx], // Supports PDF, DOC, and DOCX
       });
 
       if (!selectedDocument) {
@@ -279,105 +281,144 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
       console.log("Selected document:", selectedDocument);
 
-      // Copy the content URI to internal storage
-      const internalPath = await PdfTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
-      console.log("Document copied to internal storage:", internalPath);
+      // Get the document name and type
+      const documentName = selectedDocument.name || 'Selected Document';
+      const documentType = selectedDocument.type;
+      const fileName = documentName.toLowerCase();
 
-      // Get the document name
-      const documentName = selectedDocument.name || 'Selected PDF';
+      console.log("Document details:", { documentName, documentType, fileName });
 
-      const { NativeModules } = require('react-native');
-      let response = null;
+      let extractedText = '';
+      let processingTime = 0;
       let extractionMethod = '';
 
-      // Step 1: Test with fast OCR to determine extraction quality
-      try {
-        console.log("Starting fast OCR extraction (all pages)...");
-        const fastOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithFastOCR(internalPath);
-        console.log("Fast OCR result:", fastOCRResult);
+      // Determine file type and extract text accordingly
+      if (fileName.endsWith('.pdf') || documentType?.includes('pdf')) {
+        console.log("Processing as PDF document...");
+        
+        // Copy the content URI to internal storage
+        const internalPath = await PdfTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
+        console.log("PDF copied to internal storage:", internalPath);
 
-        if (fastOCRResult && fastOCRResult.text && fastOCRResult.text.trim().length > 50) {
-          console.log("✅ Fast OCR successful - using result");
-          response = fastOCRResult;
-          extractionMethod = `Fast OCR Extraction (${fastOCRResult.totalPages || 'All'} pages)`;
+        const { NativeModules } = require('react-native');
+        let response = null;
 
-          // Also try full OCR in the background to compare quality
-          try {
-            console.log("Also attempting full OCR for comparison...");
-            const fullOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
-            console.log("Full OCR result:", fullOCRResult);
+        // Step 1: Test with fast OCR to determine extraction quality
+        try {
+          console.log("Starting fast OCR extraction (all pages)...");
+          const fastOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithFastOCR(internalPath);
+          console.log("Fast OCR result:", fastOCRResult);
 
-            if (fullOCRResult && fullOCRResult.text && fullOCRResult.text.trim().length > fastOCRResult.text.trim().length * 1.5) {
-              // Full OCR got significantly more text (at least 50% more)
-              response = fullOCRResult;
-              extractionMethod = 'Full OCR Extraction (All pages)';
-              console.log("✅ Full OCR got significantly more text, using it instead!");
-            } else {
-              console.log("⚠️ Full OCR didn't improve significantly, keeping fast OCR result");
+          if (fastOCRResult && fastOCRResult.text && fastOCRResult.text.trim().length > 50) {
+            console.log("✅ Fast OCR successful - using result");
+            response = fastOCRResult;
+            extractionMethod = `Fast OCR Extraction (${fastOCRResult.totalPages || 'All'} pages)`;
+
+            // Also try full OCR in the background to compare quality
+            try {
+              console.log("Also attempting full OCR for comparison...");
+              const fullOCRResult = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
+              console.log("Full OCR result:", fullOCRResult);
+
+              if (fullOCRResult && fullOCRResult.text && fullOCRResult.text.trim().length > fastOCRResult.text.trim().length * 1.5) {
+                // Full OCR got significantly more text (at least 50% more)
+                response = fullOCRResult;
+                extractionMethod = 'Full OCR Extraction (All pages)';
+                console.log("✅ Full OCR got significantly more text, using it instead!");
+              } else {
+                console.log("⚠️ Full OCR didn't improve significantly, keeping fast OCR result");
+              }
+            } catch (fullOCRError) {
+              console.log("Full OCR failed, keeping successful fast OCR result:", fullOCRError);
             }
-          } catch (fullOCRError) {
-            console.log("Full OCR failed, keeping successful fast OCR result:", fullOCRError);
-          }
-        } else {
-          console.log("Fast OCR failed or insufficient text, trying full OCR directly...");
-          // Try full OCR directly
-          response = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
-          console.log("Direct full OCR result:", response);
-          extractionMethod = 'Direct OCR Extraction (All pages)';
-          if (response && response.text && response.text.trim().length > 10) {
-            console.log("✅ Direct OCR extraction successful!");
           } else {
-            console.log("❌ Direct OCR also failed or insufficient text");
+            console.log("Fast OCR failed or insufficient text, trying full OCR directly...");
+            // Try full OCR directly
+            response = await NativeModules.PdfTextExtractorModule.extractTextWithTextricatorApproach(internalPath);
+            console.log("Direct full OCR result:", response);
+            extractionMethod = 'Direct OCR Extraction (All pages)';
+            if (response && response.text && response.text.trim().length > 10) {
+              console.log("✅ Direct OCR extraction successful!");
+            } else {
+              console.log("❌ Direct OCR also failed or insufficient text");
+            }
+          }
+        } catch (testError) {
+          console.log('❌ OCR extraction failed:', testError);
+          console.log('This might be a complex PDF or contain only images');
+        }
+
+        // Check if we got any meaningful text
+        console.log("Final PDF extraction check:", {
+          hasResponse: !!response,
+          hasText: !!response?.text,
+          textLength: response?.text?.trim().length || 0,
+          extractionMethod
+        });
+
+        if (!response || !response.text || response.text.trim().length < 10) {
+          // Be more lenient with text length requirement
+          if (response?.text && response.text.trim().length > 0) {
+            console.log("⚠️ Found some text but it's very short:", response.text.trim());
+            // Still try to process it if we found any text at all
+          } else {
+            throw new Error(`PDF extraction failed. The document may be corrupted, password-protected, contain only images, or be in an unsupported format.\n\nExtraction method tried: ${extractionMethod || 'Multiple methods'}\nFile: ${documentName}`);
           }
         }
-      } catch (testError) {
-        console.log('❌ OCR extraction failed:', testError);
-        console.log('This might be a complex PDF or contain only images');
-      }
 
-      // Check if we got any meaningful text
-      console.log("Final extraction check:", {
-        hasResponse: !!response,
-        hasText: !!response?.text,
-        textLength: response?.text?.trim().length || 0,
-        extractionMethod
-      });
+        extractedText = response.text;
+        processingTime = response.processingTime || 0;
+        
+      } else if (fileName.endsWith('.doc') || fileName.endsWith('.docx') || 
+                 documentType?.includes('msword') || 
+                 documentType?.includes('wordprocessingml')) {
+        console.log("Processing as Word document...");
+        
+        // Copy the content URI to internal storage
+        const internalPath = await WordTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
+        console.log("Word document copied to internal storage:", internalPath);
 
-      if (!response || !response.text || response.text.trim().length < 10) {
-        // Be more lenient with text length requirement
-        if (response?.text && response.text.trim().length > 0) {
-          console.log("⚠️ Found some text but it's very short:", response.text.trim());
-          // Still try to process it if we found any text at all
-        } else {
-          throw new Error(`PDF extraction failed. The document may be corrupted, password-protected, contain only images, or be in an unsupported format.\n\nExtraction method tried: ${extractionMethod || 'Multiple methods'}\nFile: ${documentName}`);
+        // Extract text using Apache POI
+        const wordResult = await WordTextExtractor.extractText(internalPath);
+        console.log("Word extraction result:", wordResult);
+
+        extractedText = wordResult.text;
+        processingTime = wordResult.processingTime;
+        extractionMethod = wordResult.extractionMethod;
+
+        if (!extractedText || extractedText.trim().length < 10) {
+          throw new Error(`Word document extraction failed. The document may be corrupted, password-protected, or in an unsupported format.\n\nExtraction method: ${extractionMethod}\nFile: ${documentName}`);
         }
+        
+      } else {
+        throw new Error(`Unsupported document format. Please select a PDF (.pdf), Word document (.doc or .docx).\n\nSelected file: ${documentName}\nType: ${documentType}`);
       }
 
       // Process document through RAG pipeline
-      if (ragService && response.text) {
+      if (ragService && extractedText) {
         await processDocumentThroughRAG(
           documentName,
-          response.text,
-          internalPath
+          extractedText,
+          selectedDocument.uri
         );
       } else {
         Alert.alert('Error', 'Document processing service not available. Please try again.');
       }
     } catch (e: any) {
-      console.error('PDF upload error:', e);
+      console.error('Document upload error:', e);
 
-      let errorMessage = 'Failed to process PDF';
+      let errorMessage = 'Failed to process document';
 
       if (e?.message?.includes('User cancelled') || e?.message?.includes('CANCELLED')) {
         // Don't show error for user cancellation
         setUploading(false);
         return;
       } else if (e?.message?.includes('No application found')) {
-        errorMessage = 'No PDF viewer app found on your device. Please install a PDF app to select documents.';
+        errorMessage = 'No document viewer app found on your device. Please install a document app to select files.';
       } else if (e?.message?.includes('Permission denied')) {
         errorMessage = 'Permission denied. Please grant file access permission and try again.';
       } else if (e?.message?.includes('Failed to copy content URI')) {
-        errorMessage = 'Unable to access the selected file. Please try selecting a different PDF or ensure the file is accessible.';
+        errorMessage = 'Unable to access the selected file. Please try selecting a different document or ensure the file is accessible.';
       } else {
         errorMessage = e?.message || errorMessage;
       }
@@ -413,6 +454,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           onLogout={onLogout}
           onNavigateToProfile={() => setCurrentScreen('profile')}
           onNavigateToBilling={() => setCurrentScreen('billing')}
+          onNavigateToWordTest={() => setCurrentScreen('wordtest')}
         />
       </SafeAreaView>
     );
@@ -436,6 +478,17 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       <SafeAreaView style={styles.container}>
         <BillingScreen
           userId={user.id}
+          onBack={() => setCurrentScreen('settings')}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // If Word test screen is active, show it
+  if (currentScreen === 'wordtest') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <WordTestScreen
           onBack={() => setCurrentScreen('settings')}
         />
       </SafeAreaView>
@@ -620,7 +673,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               </View>
 
               <View style={styles.sourceOptions}>
-                <TouchableOpacity style={styles.sourceOption} onPress={handlePdfUpload}>
+                <TouchableOpacity style={styles.sourceOption} onPress={handleDocumentUpload}>
                   <Text style={styles.sourceOptionText}>Upload Document</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.sourceOption} onPress={handleCopiedText}>

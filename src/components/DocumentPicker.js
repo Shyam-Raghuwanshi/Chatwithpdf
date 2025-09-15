@@ -22,6 +22,9 @@ class DocumentPicker {
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     xls: 'application/vnd.ms-excel',
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    // Combined types for convenience
+    documents: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    allDocuments: '*/*', // For broad document support
   };
 
   static async pick(options = {}) {
