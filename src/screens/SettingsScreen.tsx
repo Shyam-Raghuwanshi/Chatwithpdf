@@ -85,7 +85,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout, onNav
           <Text style={styles.upgradeSubtitle}>
             Upgrade for more usage and capabilities.
           </Text>
-          <TouchableOpacity style={styles.upgradeButton} onPress={handleUpgrade}>
+          <TouchableOpacity style={styles.upgradeButton} onPress={handleBilling}>
             <Text style={styles.upgradeButtonText}>Upgrade</Text>
           </TouchableOpacity>
         </View>
@@ -238,6 +238,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999999',
     marginTop: 2,
+    marginLeft: 6,
   },
   settingContentFlex: {
     flex: 1,
