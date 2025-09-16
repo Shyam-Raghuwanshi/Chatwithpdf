@@ -47,6 +47,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const [deletingDocument, setDeletingDocument] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchScreen, setShowSearchScreen] = useState(false);
+  const [showTextInputModal, setShowTextInputModal] = useState(false);
+  const [textInputContent, setTextInputContent] = useState('');
   const slideAnim = useRef(new Animated.Value(0)).current;
   const searchSlideAnim = useRef(new Animated.Value(Dimensions.get('window').width)).current;
   const screenHeight = Dimensions.get('window').height;
@@ -108,7 +110,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     setCurrentScreen('pdf');
   };
 
-  // Filter documents based on search query
+  // Filter documents based
   const filteredDocuments = userDocuments.filter(doc =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -429,19 +431,84 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     }
   };
 
-  const handleCopiedText = () => {
+  const handleCopiedText = async () => {
     hideSourceDropdown();
-    Alert.alert('Coming Soon', 'Copied text feature will be available soon!');
+    try {
+      // Try to get clipboard content
+      const { Clipboard } = require('react-native');
+      const content = await Clipboard.getString();
+      if (content) {
+        setTextInputContent(content);
+      }
+    } catch (error) {
+      console.log('Could not access clipboard:', error);
+    }
+    setShowTextInputModal(true);
   };
 
-  const handleWebsite = () => {
-    hideSourceDropdown();
-    Alert.alert('Coming Soon', 'Website feature will be available soon!');
-  };
+  const handleTextInputSubmit = async () => {
+    const text = textInputContent.trim();
+    if (!text) {
+      Alert.alert('Error', 'Please enter some text content.');
+      return;
+    }
 
-  const handleYoutube = () => {
-    hideSourceDropdown();
-    Alert.alert('Coming Soon', 'YouTube feature will be available soon!');
+    // Validate minimum text length
+    if (text.length < 50) {
+      Alert.alert(
+        'Text Too Short',
+        'Please enter at least 50 characters of text to ensure meaningful processing.',
+        [
+          {
+            text: 'OK',
+            onPress: () => null,
+          }
+        ]
+      );
+      return;
+    }
+
+    setShowTextInputModal(false);
+    try {
+      setProcessing(true);
+      
+      // Generate a meaningful title from the first sentence or first few words
+      let title = '';
+      const firstSentenceMatch = text.match(/^[^.!?]+[.!?]/);
+      if (firstSentenceMatch && firstSentenceMatch[0].length <= 50) {
+        title = firstSentenceMatch[0].trim();
+      } else {
+        const words = text.split(' ');
+        title = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+      }
+
+      // Ensure text has proper paragraph breaks
+      const formattedText = text
+        .replace(/\s+/g, ' ')           // Normalize whitespace
+        .replace(/([.!?])\s+/g, '$1\n\n') // Add paragraph breaks after sentences
+        .trim();
+
+      await processDocumentThroughRAG(
+        `Note: ${title}`,
+        formattedText,
+        ''
+      );
+      
+      setTextInputContent('');
+    } catch (error: any) {
+      console.error('Error processing text:', error);
+      
+      let errorMessage = 'Failed to process text';
+      if (error.message.includes('No chunks generated')) {
+        errorMessage = 'Text could not be processed. Please ensure your text has enough content and try again.';
+      } else {
+        errorMessage = error.message || errorMessage;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   // If settings screen is active, show it
@@ -513,29 +580,29 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContainer}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Paper</Text>
-            </View>
-            <View style={styles.userInfo}>
-              <TouchableOpacity style={styles.search} onPress={handleSearchPress}>
-                <Image
-                  source={require('../../assets/icons/search.png')}
-                  style={{ width: 20, height: 20 }}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
-                <Image
-                  style={{ width: 36, height: 36, borderRadius: 18 }}
-                  source={{ uri: user.avatarUrl }}
-                />
-              </TouchableOpacity>
-            </View>
+        {/* Header - moved outside ScrollView to make it sticky */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>Paper</Text>
           </View>
+          <View style={styles.userInfo}>
+            <TouchableOpacity style={styles.search} onPress={handleSearchPress}>
+              <Image
+                source={require('../../assets/icons/search.png')}
+                style={{ width: 20, height: 20 }}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.avatar} onPress={handleProfilePress}>
+              <Image
+                style={{ width: 36, height: 36, borderRadius: 18 }}
+                source={{ uri: user.avatarUrl }}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
 
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContainer}>
           {/* Main Content */}
           <View style={styles.mainContent}>
             {/* Tab Navigation */}
@@ -592,7 +659,6 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
             </View>
           </View>
         </ScrollView>
-
 
         {/* Fixed Create New Button at Bottom */}
         <View style={styles.bottomContainer}>
@@ -855,6 +921,71 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           </Animated.View>
         </View>
       </Modal>
+
+      {/* Text Input Modal */}
+      <Modal
+        visible={showTextInputModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTextInputModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.dropdownContainer, {padding: 20}]}> {/* Reuse dropdownContainer for modal styling */}
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+              <Text style={{fontSize: 20, color: 'white', fontFamily: FONT_FAMILY.bold}}>Add Text Content</Text>
+              <TouchableOpacity onPress={() => { setShowTextInputModal(false); setTextInputContent(''); }}>
+                <Text style={{fontSize: 22, color: '#999'}}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{fontSize: 16, color: '#999', marginBottom: 12}}>
+              Paste or type the text content you want to add as a document:
+            </Text>
+            <TextInput
+              style={{
+                backgroundColor: '#1c1c1e',
+                borderRadius: 12,
+                padding: 16,
+                fontSize: 16,
+                color: 'white',
+                borderWidth: 1,
+                borderColor: '#3a3a3c',
+                minHeight: 120,
+                maxHeight: 200,
+                marginBottom: 12,
+                textAlignVertical: 'top',
+              }}
+              value={textInputContent}
+              onChangeText={setTextInputContent}
+              placeholder="Enter your text content here..."
+              placeholderTextColor="#999"
+              multiline
+              maxLength={10000}
+            />
+            <Text style={{fontSize: 12, color: '#999', textAlign: 'right', marginBottom: 12}}>
+              {textInputContent.length}/10,000 characters
+            </Text>
+            <View style={{flexDirection: 'row', gap: 12}}>
+              <TouchableOpacity
+                style={{flex: 1, backgroundColor: '#3a3a3c', borderRadius: 12, paddingVertical: 14, alignItems: 'center'}}
+                onPress={() => { setShowTextInputModal(false); setTextInputContent(''); }}
+              >
+                <Text style={{fontSize: 16, color: 'white', fontWeight: '500'}}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{flex: 1, backgroundColor: '#FF734C', borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: !textInputContent.trim() ? 0.6 : 1}}
+                onPress={handleTextInputSubmit}
+                disabled={!textInputContent.trim() || processing}
+              >
+                {processing ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={{fontSize: 16, color: 'white', fontWeight: '600'}}>Add Text</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -901,6 +1032,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
     width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 20,
   },
   title: {
     color: "white",
@@ -1133,6 +1266,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     alignItems: 'center',
+    alignSelf: 'center',
+    width: 'auto',
+    minWidth: 200,
   },
   createNewButtonText: {
     color: 'white',

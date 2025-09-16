@@ -126,6 +126,8 @@ const ChatScreen: React.FC<Props> = ({
     icon?: string;
   }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [showTextInputModal, setShowTextInputModal] = useState(false);
+  const [textInputContent, setTextInputContent] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
 
@@ -614,7 +616,56 @@ const ChatScreen: React.FC<Props> = ({
   };
 
   const handleCopiedTextUpload = () => {
-    Alert.alert('Coming Soon', 'Copied text upload feature will be available soon!');
+    Alert.alert(
+      'Add Text Content',
+      'Enter the text you want to add to this chat:',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Add Text',
+          onPress: () => {
+            // Show text input modal
+            setShowTextInputModal(true);
+          }
+        }
+      ] 
+    );
+  };
+
+  // Handle text input submission
+  const handleTextInputSubmit = async () => {
+    if (!textInputContent.trim()) {
+      Alert.alert('Error', 'Please enter some text content.');
+      return;
+    }
+
+    setShowTextInputModal(false);
+    
+    try {
+      setProcessing(true);
+      
+      // Generate a title from the first few words
+      const words = textInputContent.trim().split(' ');
+      const title = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+      
+      // Process the text through RAG pipeline
+      await processDocumentThroughRAG(
+        `Text: ${title}`,
+        textInputContent.trim(),
+        '' // No file URI for text input
+      );
+      
+      // Clear the input
+      setTextInputContent('');
+      
+    } catch (error: any) {
+      console.error('Error processing text:', error);
+      Alert.alert('Error', error?.message || 'Failed to process text');
+      setProcessing(false);
+    }
   };
 
   const sendMessage = async () => {
@@ -955,20 +1006,15 @@ const ChatScreen: React.FC<Props> = ({
                     ) : (
                       <Text style={styles.uploadOptionEmoji}>📄</Text>
                     )}
-                    <Text style={styles.uploadOptionText}>PDF</Text>
+                    <Text style={styles.uploadOptionText}>Document: pdf, doc, docx</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.uploadOption} onPress={handleWebsiteUpload}>
-                    <Text style={styles.uploadOptionEmoji}>🌐</Text>
-                    <Text style={styles.uploadOptionText}>Website</Text>
-                  </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.uploadOption} onPress={handleYoutubeUpload}>
-                    <Text style={styles.uploadOptionEmoji}>📺</Text>
-                    <Text style={styles.uploadOptionText}>YouTube</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.uploadOption} onPress={handleCopiedTextUpload}>
+                  <TouchableOpacity
+                    style={[styles.uploadOption, (uploading || processing) && styles.disabledUploadOption]}
+                    onPress={handleCopiedTextUpload}
+                    disabled={uploading || processing}
+                  >
                     <Text style={styles.uploadOptionEmoji}>📝</Text>
                     <Text style={styles.uploadOptionText}>Copied text</Text>
                   </TouchableOpacity>
@@ -1170,6 +1216,81 @@ const ChatScreen: React.FC<Props> = ({
                   )}
                 </View>
               </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Text Input Modal */}
+        <Modal
+          visible={showTextInputModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowTextInputModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.textInputModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Text Content</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => {
+                    setShowTextInputModal(false);
+                    setTextInputContent('');
+                  }}
+                >
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.textInputModalBody}>
+                <Text style={styles.textInputLabel}>
+                  Paste or type the text content you want to add to this chat:
+                </Text>
+                
+                <TextInput
+                  style={styles.textInputField}
+                  value={textInputContent}
+                  onChangeText={setTextInputContent}
+                  placeholder="Enter your text content here..."
+                  placeholderTextColor="#999"
+                  multiline
+                  textAlignVertical="top"
+                  maxLength={10000}
+                />
+                
+                <View style={styles.textInputFooter}>
+                  <Text style={styles.characterCount}>
+                    {textInputContent.length}/10,000 characters
+                  </Text>
+                  
+                  <View style={styles.textInputActions}>
+                    <TouchableOpacity
+                      style={styles.textInputCancelButton}
+                      onPress={() => {
+                        setShowTextInputModal(false);
+                        setTextInputContent('');
+                      }}
+                    >
+                      <Text style={styles.textInputCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.textInputSubmitButton,
+                        !textInputContent.trim() && styles.textInputSubmitButtonDisabled
+                      ]}
+                      onPress={handleTextInputSubmit}
+                      disabled={!textInputContent.trim() || processing}
+                    >
+                      {processing ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Text style={styles.textInputSubmitText}>Add Text</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         </Modal>
@@ -1918,6 +2039,80 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     textAlign: 'center',
+  },
+
+  // Text Input Modal Styles
+  textInputModalContent: {
+    backgroundColor: '#2c2c2e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    minHeight: '60%',
+    paddingTop: 20,
+  },
+  textInputModalBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  textInputLabel: {
+    fontSize: 16,
+    color: '#999',
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  textInputField: {
+    flex: 1,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: 'white',
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+    minHeight: 150,
+  },
+  textInputFooter: {
+    marginTop: 16,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'right',
+    marginBottom: 12,
+  },
+  textInputActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  textInputCancelButton: {
+    flex: 1,
+    backgroundColor: '#3a3a3c',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  textInputCancelText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '500',
+  },
+  textInputSubmitButton: {
+    flex: 1,
+    backgroundColor: '#FF734C',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  textInputSubmitButtonDisabled: {
+    backgroundColor: '#666',
+    opacity: 0.6,
+  },
+  textInputSubmitText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '600',
   },
 });
 
