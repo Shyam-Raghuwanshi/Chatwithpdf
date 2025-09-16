@@ -297,7 +297,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       // Determine file type and extract text accordingly
       if (fileName.endsWith('.pdf') || documentType?.includes('pdf')) {
         console.log("Processing as PDF document...");
-        
+
         // Copy the content URI to internal storage
         const internalPath = await PdfTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
         console.log("PDF copied to internal storage:", internalPath);
@@ -370,12 +370,12 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
 
         extractedText = response.text;
         processingTime = response.processingTime || 0;
-        
-      } else if (fileName.endsWith('.doc') || fileName.endsWith('.docx') || 
-                 documentType?.includes('msword') || 
-                 documentType?.includes('wordprocessingml')) {
+
+      } else if (fileName.endsWith('.doc') || fileName.endsWith('.docx') ||
+        documentType?.includes('msword') ||
+        documentType?.includes('wordprocessingml')) {
         console.log("Processing as Word document...");
-        
+
         // Copy the content URI to internal storage
         const internalPath = await WordTextExtractor.copyContentUriToInternalStorage(selectedDocument.uri);
         console.log("Word document copied to internal storage:", internalPath);
@@ -391,7 +391,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         if (!extractedText || extractedText.trim().length < 10) {
           throw new Error(`Word document extraction failed. The document may be corrupted, password-protected, or in an unsupported format.\n\nExtraction method: ${extractionMethod}\nFile: ${documentName}`);
         }
-        
+
       } else {
         throw new Error(`Unsupported document format. Please select a PDF (.pdf), Word document (.doc or .docx).\n\nSelected file: ${documentName}\nType: ${documentType}`);
       }
@@ -471,7 +471,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
     setShowTextInputModal(false);
     try {
       setProcessing(true);
-      
+
       // Generate a meaningful title from the first sentence or first few words
       let title = '';
       const firstSentenceMatch = text.match(/^[^.!?]+[.!?]/);
@@ -493,18 +493,18 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         formattedText,
         ''
       );
-      
+
       setTextInputContent('');
     } catch (error: any) {
       console.error('Error processing text:', error);
-      
+
       let errorMessage = 'Failed to process text';
       if (error.message.includes('No chunks generated')) {
         errorMessage = 'Text could not be processed. Please ensure your text has enough content and try again.';
       } else {
         errorMessage = error.message || errorMessage;
       }
-      
+
       Alert.alert('Error', errorMessage);
     } finally {
       setProcessing(false);
@@ -660,33 +660,32 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
           </View>
         </ScrollView>
 
-        {/* Fixed Create New Button at Bottom */}
-        <View style={styles.bottomContainer}>
-          <TouchableOpacity
-            style={[styles.createNewButton, (uploading || processing) && styles.disabledButton]}
-            onPress={showSourceDropdown}
-            disabled={uploading || processing}
-          >
-            {(uploading || processing) ? (
-              <View style={styles.buttonLoading}>
-                <ActivityIndicator size="small" color="#333" />
-                <Text style={styles.createNewButtonText}>
-                  {uploading ? 'Uploading...' : 'Processing...'}
-                </Text>
+        {/* Floating Create New Button */}
+        <TouchableOpacity
+          style={[styles.createNewButton, (uploading || processing) && styles.disabledButton]}
+          onPress={showSourceDropdown}
+          disabled={uploading || processing}
+        >
+          {(uploading || processing) ? (
+            <View style={styles.buttonLoading}>
+              <ActivityIndicator size="small" color="#333" />
+              <Text style={styles.createNewButtonText}>
+                {uploading ? 'Uploading...' : 'Processing...'}
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Image
+                  style={{ width: 12, height: 12, marginRight: 8 }}
+                  source={require('../../assets/icons/plus.png')}
+                />
+                <Text style={styles.createNewButtonText}> New Chat</Text>
               </View>
-            ) : (
-              <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Image
-                    style={{ width: 12, height: 12, marginRight: 8 }}
-                    source={require('../../assets/icons/plus.png')}
-                  />
-                  <Text style={styles.createNewButtonText}> New Chat</Text>
-                </View>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+            </>
+          )}
+        </TouchableOpacity>
+
       </View>
 
       {/* Source Selection Modal */}
@@ -930,14 +929,14 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         onRequestClose={() => setShowTextInputModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.dropdownContainer, {padding: 20}]}> {/* Reuse dropdownContainer for modal styling */}
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
-              <Text style={{fontSize: 20, color: 'white', fontFamily: FONT_FAMILY.bold}}>Add Text Content</Text>
+          <View style={[styles.dropdownContainer, { padding: 20 }]}> {/* Reuse dropdownContainer for modal styling */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 20, color: 'white', fontFamily: FONT_FAMILY.bold }}>Add Text Content</Text>
               <TouchableOpacity onPress={() => { setShowTextInputModal(false); setTextInputContent(''); }}>
-                <Text style={{fontSize: 22, color: '#999'}}>✕</Text>
+                <Text style={{ fontSize: 22, color: '#999' }}>✕</Text>
               </TouchableOpacity>
             </View>
-            <Text style={{fontSize: 16, color: '#999', marginBottom: 12}}>
+            <Text style={{ fontSize: 16, color: '#999', marginBottom: 12 }}>
               Paste or type the text content you want to add as a document:
             </Text>
             <TextInput
@@ -961,25 +960,25 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
               multiline
               maxLength={10000}
             />
-            <Text style={{fontSize: 12, color: '#999', textAlign: 'right', marginBottom: 12}}>
+            <Text style={{ fontSize: 12, color: '#999', textAlign: 'right', marginBottom: 12 }}>
               {textInputContent.length}/10,000 characters
             </Text>
-            <View style={{flexDirection: 'row', gap: 12}}>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
               <TouchableOpacity
-                style={{flex: 1, backgroundColor: '#3a3a3c', borderRadius: 12, paddingVertical: 14, alignItems: 'center'}}
+                style={{ flex: 1, backgroundColor: '#3a3a3c', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
                 onPress={() => { setShowTextInputModal(false); setTextInputContent(''); }}
               >
-                <Text style={{fontSize: 16, color: 'white', fontWeight: '500'}}>Cancel</Text>
+                <Text style={{ fontSize: 16, color: 'white', fontWeight: '500' }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{flex: 1, backgroundColor: '#FF734C', borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: !textInputContent.trim() ? 0.6 : 1}}
+                style={{ flex: 1, backgroundColor: '#FF734C', borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: !textInputContent.trim() ? 0.6 : 1 }}
                 onPress={handleTextInputSubmit}
                 disabled={!textInputContent.trim() || processing}
               >
                 {processing ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={{fontSize: 16, color: 'white', fontWeight: '600'}}>Add Text</Text>
+                  <Text style={{ fontSize: 16, color: 'white', fontWeight: '600' }}>Add Text</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -1005,6 +1004,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 16,
     paddingTop: 20,
+    paddingBottom: 100,
   },
   screenHeader: {
     flexDirection: 'row',
@@ -1257,7 +1257,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF734C',
     paddingHorizontal: 32,
     paddingVertical: 16,
-    borderRadius: 25,
+    borderRadius: 64,
     shadowOffset: {
       width: 0,
       height: 4,
@@ -1266,9 +1266,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     alignItems: 'center',
+    position: 'absolute',
+    bottom: 30,
     alignSelf: 'center',
-    width: 'auto',
-    minWidth: 200,
+    left: '50%',
+    transform: [{ translateX: -75 }],
   },
   createNewButtonText: {
     color: 'white',
