@@ -45,6 +45,12 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [deletingDocument, setDeletingDocument] = useState(false);
+  const [showDocumentActionModal, setShowDocumentActionModal] = useState(false);
+  const [selectedDocumentForAction, setSelectedDocumentForAction] = useState<Document | null>(null);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [documentToRename, setDocumentToRename] = useState<Document | null>(null);
+  const [renamingDocument, setRenamingDocument] = useState(false);
+  const [newDocumentTitle, setNewDocumentTitle] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchScreen, setShowSearchScreen] = useState(false);
   const [showTextInputModal, setShowTextInputModal] = useState(false);
@@ -122,8 +128,15 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
   };
 
   const handleDocumentAction = (document: Document) => {
-    setDocumentToDelete(document);
-    setShowDeleteModal(true);
+    setSelectedDocumentForAction(document);
+    setShowDocumentActionModal(true);
+  };
+
+  const handleRenameDocument = (document: Document) => {
+    setDocumentToRename(document);
+    setNewDocumentTitle(document.title);
+    setShowDocumentActionModal(false);
+    setShowRenameModal(true);
   };
 
   const handleDeleteDocument = async () => {
@@ -152,6 +165,61 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
       Alert.alert('Error', 'Failed to delete document. Please try again.');
     } finally {
       setDeletingDocument(false);
+    }
+  };
+
+  const handleConfirmDelete = (document: Document) => {
+    setDocumentToDelete(document);
+    setShowDocumentActionModal(false);
+    setShowDeleteModal(true);
+  };
+
+  const handleRenameSubmit = async () => {
+    const trimmedTitle = newDocumentTitle.trim();
+
+    if (!trimmedTitle) {
+      Alert.alert('Error', 'Please enter a valid document title.');
+      return;
+    }
+
+    if (!documentToRename || !ragService || !user || !user.id || !documentToRename.$id) {
+      Alert.alert('Error', 'Unable to rename document at this time.');
+      return;
+    }
+
+    setRenamingDocument(true);
+    try {
+      // Access the AppwriteDB instance directly from ragService
+      const appwriteDB = (ragService as any).appwriteDB;
+      if (!appwriteDB) {
+        throw new Error('Database connection not available');
+      }
+
+      // Update document title in the database
+      await appwriteDB.tablesDB.updateRow(
+        appwriteDB.config.databaseId,
+        '68a75b180016b4e52d00', // DOCUMENTS collection ID
+        documentToRename.$id,
+        {
+          title: trimmedTitle,
+        }
+      );
+
+      // Close modal
+      setShowRenameModal(false);
+      setDocumentToRename(null);
+      setNewDocumentTitle('');
+
+      // Reload documents to reflect changes
+      await loadUserDocuments();
+
+      Alert.alert('Success', 'Document renamed successfully!');
+
+    } catch (error) {
+      console.error('Error renaming document:', error);
+      Alert.alert('Error', 'Failed to rename document. Please try again.');
+    } finally {
+      setRenamingDocument(false);
     }
   };
 
@@ -640,7 +708,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
                       </Text>
                     </View>
                     <TouchableOpacity style={styles.documentAction} onPress={() => handleDocumentAction(doc)}>
-                      <Text style={styles.documentActionIcon}>⋯</Text>
+                      <Image
+                        source={require('../../assets/icons/dots-horizontal.png')}
+                      />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 ))
@@ -696,7 +766,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         onRequestClose={hideSourceDropdown}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={styles.sourceModalOverlay}
           activeOpacity={1}
           onPress={hideSourceDropdown}
         >
@@ -757,7 +827,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         animationType="fade"
         onRequestClose={() => setShowDeleteModal(false)}
       >
-        <View style={styles.deleteModalOverlay}>
+        <View style={styles.modalOverlay}>
           <View style={styles.deleteModalContent}>
             <Text style={styles.deleteModalTitle}>Delete Document</Text>
             <Text style={styles.deleteModalMessage}>
@@ -782,6 +852,131 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
                   <ActivityIndicator size="small" color="white" />
                 ) : (
                   <Text style={styles.deleteButtonText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Document Action Modal */}
+      <Modal
+        visible={showDocumentActionModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDocumentActionModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setShowDocumentActionModal(false);
+            setSelectedDocumentForAction(null);
+          }}
+        >
+          <View style={styles.actionModalContainer}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={styles.actionModalHeader}>
+                <Text style={styles.actionModalTitle}>
+                  {selectedDocumentForAction?.title}
+                </Text>
+              </View>
+
+              <View style={styles.actionOptions}>
+                <TouchableOpacity
+                  style={styles.actionOption}
+                  onPress={() => handleRenameDocument(selectedDocumentForAction!)}
+                >
+                  <View style={styles.actionOptionContent}>
+                    <Image
+                      source={require('../../assets/icons/file.png')}
+                      style={styles.actionOptionIcon}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.actionOptionText}>Rename Chat</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionOption, styles.actionOptionDanger]}
+                  onPress={() => handleConfirmDelete(selectedDocumentForAction!)}
+                >
+                  <View style={styles.actionOptionContent}>
+                    <Image
+                      source={require('../../assets/icons/trash.png')}
+                      style={[styles.actionOptionIcon, styles.actionOptionIconDanger]}
+                      resizeMode="contain"
+                    />
+                    <Text style={[styles.actionOptionText, styles.actionOptionTextDanger]}>Delete Chat</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Rename Document Modal */}
+      <Modal
+        visible={showRenameModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowRenameModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.renameModalContainer}>
+            <View style={styles.renameModalHeader}>
+              <Text style={styles.renameModalTitle}>Rename Chat</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowRenameModal(false);
+                  setDocumentToRename(null);
+                  setNewDocumentTitle('');
+                }}
+                style={styles.renameModalCloseButton}
+              >
+                <Image
+                  source={require('../../assets/icons/x.png')}
+                  style={{ width: 20, height: 20 }}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.renameModalSubtitle}>
+              Enter a new name for this chat:
+            </Text>
+
+            <TextInput
+              style={styles.renameInput}
+              value={newDocumentTitle}
+              onChangeText={setNewDocumentTitle}
+              placeholder="Enter new chat name..."
+              placeholderTextColor="#999"
+              autoFocus={true}
+              maxLength={100}
+            />
+
+            <View style={styles.renameModalButtons}>
+              <TouchableOpacity
+                style={[styles.renameModalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowRenameModal(false);
+                  setDocumentToRename(null);
+                  setNewDocumentTitle('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.renameModalButton, styles.confirmButton]}
+                onPress={handleRenameSubmit}
+                disabled={!newDocumentTitle.trim() || renamingDocument}
+              >
+                {renamingDocument ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Rename</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -928,7 +1123,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
         animationType="slide"
         onRequestClose={() => setShowTextInputModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.sourceModalOverlay}>
           <View style={[styles.dropdownContainer, { padding: 20 }]}> {/* Reuse dropdownContainer for modal styling */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={{ fontSize: 20, color: 'white', fontFamily: FONT_FAMILY.bold }}>Add Text Content</Text>
@@ -1164,7 +1359,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.regular,
   },
   documentAction: {
-    padding: 8,
+    marginRight: 9,
   },
   documentActionIcon: {
     color: '#999',
@@ -1301,6 +1496,13 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  sourceModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   dropdownContainer: {
@@ -1370,7 +1572,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2c2c2e',
     borderRadius: 12,
     padding: 24,
-    width: '100%',
+    width: '90%',
     maxWidth: 400,
     borderWidth: 1,
     borderColor: '#3a3a3c',
@@ -1562,6 +1764,114 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.regular,
     color: '#666',
     textAlign: 'center',
+  },
+  // Action Modal Styles
+  actionModalContainer: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 16,
+    maxWidth: 400,
+    width: '90%',
+  },
+  actionModalHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3a3a3c',
+  },
+  actionModalTitle: {
+    fontSize: 18,
+    fontFamily: FONT_FAMILY.semiBold,
+    color: 'white',
+    textAlign: 'center',
+  },
+  actionOptions: {
+    padding: 8,
+  },
+  actionOption: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginVertical: 4,
+  },
+  actionOptionDanger: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  actionOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionOptionIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+    tintColor: '#999',
+  },
+  actionOptionIconDanger: {
+    tintColor: '#ff3b30',
+  },
+  actionOptionText: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.medium,
+    color: 'white',
+  },
+  actionOptionTextDanger: {
+    color: '#ff3b30',
+  },
+  // Rename Modal Styles
+  renameModalContainer: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 16,
+    padding: 24,
+    maxWidth: 400,
+    width: '90%',
+  },
+  renameModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  renameModalTitle: {
+    fontSize: 20,
+    fontFamily: FONT_FAMILY.bold,
+    color: 'white',
+  },
+  renameModalCloseButton: {
+    padding: 4,
+  },
+  renameModalSubtitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#999',
+    marginBottom: 16,
+  },
+  renameInput: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: 'white',
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+    marginBottom: 20,
+    fontFamily: FONT_FAMILY.regular,
+  },
+  renameModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  renameModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  confirmButton: {
+    backgroundColor: '#FF734C',
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.semiBold,
   },
 });
 

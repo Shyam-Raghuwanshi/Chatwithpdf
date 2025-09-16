@@ -128,6 +128,10 @@ const ChatScreen: React.FC<Props> = ({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [showTextInputModal, setShowTextInputModal] = useState(false);
   const [textInputContent, setTextInputContent] = useState('');
+  const [showChatActionModal, setShowChatActionModal] = useState(false);
+  const [showRenameChatModal, setShowRenameChatModal] = useState(false);
+  const [newChatTitle, setNewChatTitle] = useState('');
+  const [renamingChat, setRenamingChat] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const currentChatId = chatId || `chat_${selectedDocument?.$id || Date.now()}`;
 
@@ -668,6 +672,123 @@ const ChatScreen: React.FC<Props> = ({
     }
   };
 
+  // Handle chat action menu
+  const handleChatAction = () => {
+    setShowChatActionModal(true);
+  };
+
+  // Handle rename chat
+  const handleRenameChat = () => {
+    // Get the current chat title from the first source or default
+    const currentTitle = chatSources.length > 0 ? chatSources[0].title : 'Chat';
+    setNewChatTitle(currentTitle);
+    setShowChatActionModal(false);
+    setShowRenameChatModal(true);
+  };
+
+  // Handle rename chat submission
+  const handleRenameChatSubmit = async () => {
+    const trimmedTitle = newChatTitle.trim();
+    
+    if (!trimmedTitle) {
+      Alert.alert('Error', 'Please enter a valid chat title.');
+      return;
+    }
+
+    if (!ragService || chatSources.length === 0) {
+      Alert.alert('Error', 'Unable to rename chat at this time.');
+      return;
+    }
+
+    setRenamingChat(true);
+    try {
+      // Update the first document's title (which represents this chat)
+      const primaryDocument = chatSources[0];
+      if (primaryDocument && primaryDocument.$id) {
+        // Access the AppwriteDB instance directly from ragService
+        const appwriteDB = (ragService as any).appwriteDB;
+        if (!appwriteDB) {
+          throw new Error('Database connection not available');
+        }
+
+        // Update document title in the database
+        await appwriteDB.tablesDB.updateRow(
+          appwriteDB.config.databaseId,
+          '68a75b180016b4e52d00', // DOCUMENTS collection ID
+          primaryDocument.$id,
+          {
+            title: trimmedTitle,
+          }
+        );
+
+        // Update local state
+        setChatSources(prev => prev.map(source => 
+          source.$id === primaryDocument.$id 
+            ? { ...source, title: trimmedTitle }
+            : source
+        ));
+
+        Alert.alert('Success', 'Chat renamed successfully!');
+      }
+
+      // Close modal
+      setShowRenameChatModal(false);
+      setNewChatTitle('');
+
+    } catch (error) {
+      console.error('Error renaming chat:', error);
+      Alert.alert('Error', 'Failed to rename chat. Please try again.');
+    } finally {
+      setRenamingChat(false);
+    }
+  };
+
+  // Handle delete chat
+  const handleDeleteChat = () => {
+    setShowChatActionModal(false);
+    
+    Alert.alert(
+      'Delete Chat',
+      'Are you sure you want to delete this chat? This will delete all messages and chat-specific documents. This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (!ragService) {
+                Alert.alert('Error', 'Unable to delete chat at this time.');
+                return;
+              }
+
+              // Delete all chat-specific documents
+              for (const source of chatSources) {
+                if (source.chatId === currentChatId && source.$id) {
+                  await ragService.deleteDocument(userId, source.$id);
+                }
+              }
+
+              Alert.alert('Success', 'Chat deleted successfully!', [
+                {
+                  text: 'OK',
+                  onPress: () => onBack() // Navigate back to dashboard
+                }
+              ]);
+
+            } catch (error) {
+              console.error('Error deleting chat:', error);
+              Alert.alert('Error', 'Failed to delete chat. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const sendMessage = async () => {
     if (!inputText.trim() || !ragService || isLoading) return;
 
@@ -934,7 +1055,7 @@ const ChatScreen: React.FC<Props> = ({
               }
             </Text>
           </View>
-          <TouchableOpacity style={{ paddingLeft: 20 }}>
+          <TouchableOpacity style={{ paddingLeft: 20 }} onPress={handleChatAction}>
             <Image
               source={require('../../assets/icons/dots-horizontal.png')}
             />
@@ -1292,6 +1413,126 @@ const ChatScreen: React.FC<Props> = ({
                     </TouchableOpacity>
                   </View>
                 </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Chat Action Modal */}
+        <Modal
+          visible={showChatActionModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowChatActionModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowChatActionModal(false)}
+          >
+            <View style={styles.chatActionModalContainer}>
+              <TouchableOpacity activeOpacity={1}>
+                <View style={styles.chatActionModalHeader}>
+                  <Text style={styles.chatActionModalTitle}>
+                    Chat Options
+                  </Text>
+                </View>
+                
+                <View style={styles.chatActionOptions}>
+                  <TouchableOpacity 
+                    style={styles.chatActionOption} 
+                    onPress={handleRenameChat}
+                  >
+                    <View style={styles.chatActionOptionContent}>
+                      <Image
+                        source={require('../../assets/icons/file.png')}
+                        style={styles.chatActionOptionIcon}
+                        resizeMode="contain"
+                      />
+                      <Text style={styles.chatActionOptionText}>Rename Chat</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.chatActionOption, styles.chatActionOptionDanger]} 
+                    onPress={handleDeleteChat}
+                  >
+                    <View style={styles.chatActionOptionContent}>
+                      <Image
+                        source={require('../../assets/icons/trash.png')}
+                        style={[styles.chatActionOptionIcon, styles.chatActionOptionIconDanger]}
+                        resizeMode="contain"
+                      />
+                      <Text style={[styles.chatActionOptionText, styles.chatActionOptionTextDanger]}>Delete Chat</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Rename Chat Modal */}
+        <Modal
+          visible={showRenameChatModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowRenameChatModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.renameChatModalContainer}>
+              <View style={styles.renameChatModalHeader}>
+                <Text style={styles.renameChatModalTitle}>Rename Chat</Text>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setShowRenameChatModal(false);
+                    setNewChatTitle('');
+                  }}
+                  style={styles.renameChatModalCloseButton}
+                >
+                  <Image
+                    source={require('../../assets/icons/x.png')}
+                    style={{ width: 20, height: 20 }}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.renameChatModalSubtitle}>
+                Enter a new name for this chat:
+              </Text>
+              
+              <TextInput
+                style={styles.renameChatInput}
+                value={newChatTitle}
+                onChangeText={setNewChatTitle}
+                placeholder="Enter new chat name..."
+                placeholderTextColor="#999"
+                autoFocus={true}
+                maxLength={100}
+              />
+              
+              <View style={styles.renameChatModalButtons}>
+                <TouchableOpacity
+                  style={[styles.renameChatModalButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowRenameChatModal(false);
+                    setNewChatTitle('');
+                  }}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.renameChatModalButton, styles.confirmButton]}
+                  onPress={handleRenameChatSubmit}
+                  disabled={!newChatTitle.trim() || renamingChat}
+                >
+                  {renamingChat ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text style={styles.confirmButtonText}>Rename</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -2112,6 +2353,129 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'white',
     fontWeight: '600',
+  },
+  // Chat Action Modal Styles
+  chatActionModalContainer: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    margin: 20,
+    padding: 0,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  chatActionModalHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3a3a3c',
+  },
+  chatActionModalTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+    textAlign: 'center',
+  },
+  chatActionOptions: {
+    padding: 12,
+  },
+  chatActionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  chatActionOptionDanger: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  chatActionOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  chatActionOptionIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+    tintColor: '#007AFF',
+  },
+  chatActionOptionIconDanger: {
+    tintColor: '#ff3b30',
+  },
+  chatActionOptionText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: 'white',
+  },
+  chatActionOptionTextDanger: {
+    color: '#ff3b30',
+  },
+  // Rename Chat Modal Styles
+  renameChatModalContainer: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    margin: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+  },
+  renameChatModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  renameChatModalTitle: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: 'white',
+  },
+  renameChatModalCloseButton: {
+    padding: 4,
+  },
+  renameChatModalSubtitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#999',
+    marginBottom: 16,
+  },
+  renameChatInput: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: 'white',
+    borderWidth: 1,
+    borderColor: '#3a3a3c',
+    marginBottom: 20,
+    fontFamily: 'Inter-Regular',
+  },
+  renameChatModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  renameChatModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#3a3a3c',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+  },
+  confirmButton: {
+    backgroundColor: '#007AFF',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
   },
 });
 
