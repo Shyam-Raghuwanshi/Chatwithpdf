@@ -22,7 +22,7 @@ interface SettingsScreenProps {
   onNavigateToWordTest?: () => void;
 }
 
-const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout, onNavigateToProfile, onNavigateToBilling, onNavigateToWordTest }) => {
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onLogout, onNavigateToProfile, onNavigateToBilling }) => {
 
   const handleLogout = async () => {
     Alert.alert(
@@ -120,20 +120,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, onBack, onLogout,
               <Text style={styles.settingSubtitle}>Dark</Text>
             </View>
           </TouchableOpacity>
-
-          {/* Word Test - Only show if navigation function is provided */}
-          {onNavigateToWordTest && (
-            <TouchableOpacity style={styles.settingItem} onPress={onNavigateToWordTest}>
-              <Image
-                style={{ width: 20, height: 20, marginRight: 8 }}
-                source={require('../../assets/icons/file.png')}
-              />
-              <View style={styles.settingContent}>
-                <Text style={styles.settingTitle}>Word Test</Text>
-                <Text style={styles.settingSubtitle}>Test Word document extraction</Text>
-              </View>
-            </TouchableOpacity>
-          )}
 
           {/* Log out */}
           <TouchableOpacity style={styles.logoutItem} onPress={handleLogout}>
