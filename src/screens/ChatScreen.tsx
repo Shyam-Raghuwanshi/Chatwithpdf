@@ -21,7 +21,7 @@ import { Document, Chat, Model } from '../../utils/AppwriteDB';
 import PdfTextExtractor from '../../utils/PdfTextExtractor';
 import DocumentPicker from '../components/DocumentPicker';
 import { useServices } from '../../utils/useServices';
-
+import { capitalizeFirstLetter } from "../../utils/Lib";
 // Global cache for models - persists during app session
 const ModelsCache = {
   data: null as Array<{
@@ -689,7 +689,7 @@ const ChatScreen: React.FC<Props> = ({
   // Handle rename chat submission
   const handleRenameChatSubmit = async () => {
     const trimmedTitle = newChatTitle.trim();
-    
+
     if (!trimmedTitle) {
       Alert.alert('Error', 'Please enter a valid chat title.');
       return;
@@ -722,8 +722,8 @@ const ChatScreen: React.FC<Props> = ({
         );
 
         // Update local state
-        setChatSources(prev => prev.map(source => 
-          source.$id === primaryDocument.$id 
+        setChatSources(prev => prev.map(source =>
+          source.$id === primaryDocument.$id
             ? { ...source, title: trimmedTitle }
             : source
         ));
@@ -746,7 +746,7 @@ const ChatScreen: React.FC<Props> = ({
   // Handle delete chat
   const handleDeleteChat = () => {
     setShowChatActionModal(false);
-    
+
     Alert.alert(
       'Delete Chat',
       'Are you sure you want to delete this chat? This will delete all messages and chat-specific documents. This action cannot be undone.',
@@ -925,7 +925,7 @@ const ChatScreen: React.FC<Props> = ({
             <View style={styles.sourceInfo}>
               <View style={styles.sourceTitleContainer}>
                 <Text style={styles.sourceTitle} numberOfLines={2}>
-                  {source.title}
+                  {capitalizeFirstLetter(source.title)}
                 </Text>
                 {source.chatId === currentChatId && (
                   <View style={styles.chatSpecificBadge}>
@@ -934,14 +934,16 @@ const ChatScreen: React.FC<Props> = ({
                 )}
               </View>
               <Text style={styles.sourceMeta}>
-                {(source as any).pageCount || 'Unknown'} pages • {new Date(source.createdAt).toLocaleDateString()}
+                {new Date(source.createdAt).toLocaleDateString()}
               </Text>
             </View>
             <TouchableOpacity
               style={styles.sourceActions}
               onPress={() => handleSourceAction(source)}
             >
-              <Text style={styles.sourceActionIcon}>⋯</Text>
+              <Image
+                source={require('../../assets/icons/dots-horizontal.png')}
+              />
             </TouchableOpacity>
           </View>
         ))}
@@ -1213,30 +1215,19 @@ const ChatScreen: React.FC<Props> = ({
                 {deletingDocument ? (
                   <ActivityIndicator size="small" color="#007AFF" />
                 ) : (
-                  <Text style={styles.dropdownOptionIcon}>
-                    {selectedSourceForAction?.chatId === currentChatId ? '🗑️' : '➖'}
-                  </Text>
+                  <Image
+                    style={{ marginRight: 8, }}
+                    source={require('../../assets/icons/trash-red.png')}
+                  />
                 )}
                 <Text style={styles.dropdownOptionText}>
                   {deletingDocument
                     ? 'Deleting...'
                     : selectedSourceForAction?.chatId === currentChatId
                       ? 'Delete document'
-                      : 'Remove from chat'
+                      : 'Remove Source'
                   }
                 </Text>
-              </TouchableOpacity>
-
-              <View style={styles.dropdownSeparator} />
-
-              <TouchableOpacity
-                style={[styles.dropdownOption, deletingDocument && styles.disabledDropdownOption]}
-                onPress={() => setShowSourceDropdown(false)}
-                activeOpacity={0.7}
-                disabled={deletingDocument}
-              >
-                <Text style={styles.dropdownOptionIcon}>❌</Text>
-                <Text style={styles.dropdownOptionText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -1437,10 +1428,10 @@ const ChatScreen: React.FC<Props> = ({
                     Chat Options
                   </Text>
                 </View>
-                
+
                 <View style={styles.chatActionOptions}>
-                  <TouchableOpacity 
-                    style={styles.chatActionOption} 
+                  <TouchableOpacity
+                    style={styles.chatActionOption}
                     onPress={handleRenameChat}
                   >
                     <View style={styles.chatActionOptionContent}>
@@ -1452,9 +1443,9 @@ const ChatScreen: React.FC<Props> = ({
                       <Text style={styles.chatActionOptionText}>Rename Chat</Text>
                     </View>
                   </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.chatActionOption, styles.chatActionOptionDanger]} 
+
+                  <TouchableOpacity
+                    style={[styles.chatActionOption, styles.chatActionOptionDanger]}
                     onPress={handleDeleteChat}
                   >
                     <View style={styles.chatActionOptionContent}>
@@ -1483,7 +1474,7 @@ const ChatScreen: React.FC<Props> = ({
             <View style={styles.renameChatModalContainer}>
               <View style={styles.renameChatModalHeader}>
                 <Text style={styles.renameChatModalTitle}>Rename Chat</Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     setShowRenameChatModal(false);
                     setNewChatTitle('');
@@ -1497,11 +1488,11 @@ const ChatScreen: React.FC<Props> = ({
                   />
                 </TouchableOpacity>
               </View>
-              
+
               <Text style={styles.renameChatModalSubtitle}>
                 Enter a new name for this chat:
               </Text>
-              
+
               <TextInput
                 style={styles.renameChatInput}
                 value={newChatTitle}
@@ -1511,7 +1502,7 @@ const ChatScreen: React.FC<Props> = ({
                 autoFocus={true}
                 maxLength={100}
               />
-              
+
               <View style={styles.renameChatModalButtons}>
                 <TouchableOpacity
                   style={[styles.renameChatModalButton, styles.cancelButton]}
@@ -1624,7 +1615,7 @@ const styles = StyleSheet.create({
   sourceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1c1e',
+    backgroundColor: '#393837',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -1681,22 +1672,17 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   addSourceButtonContainer: {
-    padding: 16,
-    paddingTop: 8,
-    backgroundColor: '#2c2c2e',
-    borderTopWidth: 1,
-    borderTopColor: '#3a3a3c',
+    paddingBottom: 16,
   },
   addSourceButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FF734C',
-    borderRadius: 30,
+    borderRadius: 64,
     gap: 6,
     padding: 16,
-    borderColor: '#555',
-    borderStyle: 'dashed',
+    alignSelf: 'center',
   },
   addSourceText: {
     fontSize: 16,
@@ -2099,19 +2085,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dropdownContent: {
+    justifyContent: 'center',
+    // alignContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#2c2c2e',
     borderRadius: 12,
-    minWidth: 200,
-    paddingVertical: 8,
+    minWidth: 300,
+    paddingVertical: 20,
     marginHorizontal: 20,
     borderWidth: 1,
-    borderColor: '#3a3a3c',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
@@ -2134,7 +2116,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'white',
     fontWeight: '500',
-    flex: 1,
   },
   dropdownSeparator: {
     height: 1,

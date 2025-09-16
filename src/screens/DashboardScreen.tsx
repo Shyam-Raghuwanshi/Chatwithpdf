@@ -27,6 +27,7 @@ import { ProcessDocumentResult } from '../../utils/RAGService';
 import { Document } from '../../utils/AppwriteDB';
 import { useBackgroundRAG } from '../../utils/useBackgroundServices';
 import { FONT_FAMILY, } from '../../utils/FontConfig';
+import { capitalizeFirstLetter } from "../../utils/Lib";
 
 import DocumentPicker from '../components/DocumentPicker';
 interface DashboardScreenProps {
@@ -701,10 +702,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ user, onLogout }) => 
                   >
                     <View style={styles.documentInfo}>
                       <Text style={styles.documentTitle} numberOfLines={1}>
-                        {doc.title}
+                        {capitalizeFirstLetter(doc.title)}
                       </Text>
                       <Text style={styles.documentMeta}>
-                        1 source • {formatTimeAgo(doc.createdAt)}
+                        {new Date(doc.createdAt).toLocaleDateString()}
                       </Text>
                     </View>
                     <TouchableOpacity style={styles.documentAction} onPress={() => handleDocumentAction(doc)}>
