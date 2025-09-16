@@ -631,7 +631,7 @@ const ChatScreen: React.FC<Props> = ({
             setShowTextInputModal(true);
           }
         }
-      ] 
+      ]
     );
   };
 
@@ -643,24 +643,24 @@ const ChatScreen: React.FC<Props> = ({
     }
 
     setShowTextInputModal(false);
-    
+
     try {
       setProcessing(true);
-      
+
       // Generate a title from the first few words
       const words = textInputContent.trim().split(' ');
       const title = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
-      
+
       // Process the text through RAG pipeline
       await processDocumentThroughRAG(
         `Text: ${title}`,
         textInputContent.trim(),
         '' // No file URI for text input
       );
-      
+
       // Clear the input
       setTextInputContent('');
-      
+
     } catch (error: any) {
       console.error('Error processing text:', error);
       Alert.alert('Error', error?.message || 'Failed to process text');
@@ -925,7 +925,7 @@ const ChatScreen: React.FC<Props> = ({
             />
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>
+            <Text numberOfLines={1} style={styles.headerTitle}>
               {chatSources.length > 0
                 ? chatSources.length === 1
                   ? chatSources[0].title
@@ -934,8 +934,10 @@ const ChatScreen: React.FC<Props> = ({
               }
             </Text>
           </View>
-          <TouchableOpacity style={styles.headerAction}>
-            <Text style={styles.headerActionText}>⋯</Text>
+          <TouchableOpacity style={{ paddingLeft: 20 }}>
+            <Image
+              source={require('../../assets/icons/dots-horizontal.png')}
+            />
           </TouchableOpacity>
         </View>
 
@@ -1148,10 +1150,10 @@ const ChatScreen: React.FC<Props> = ({
                     style={styles.modalCloseButton}
                     onPress={() => setShowModelSelector(false)}
                   >
-                   <Image
-                        style={styles.refreshIcon}
-                        source={require('../../assets/icons/x.png')}
-                      />
+                    <Image
+                      style={styles.refreshIcon}
+                      source={require('../../assets/icons/x.png')}
+                    />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1246,7 +1248,7 @@ const ChatScreen: React.FC<Props> = ({
                 <Text style={styles.textInputLabel}>
                   Paste or type the text content you want to add to this chat:
                 </Text>
-                
+
                 <TextInput
                   style={styles.textInputField}
                   value={textInputContent}
@@ -1257,12 +1259,12 @@ const ChatScreen: React.FC<Props> = ({
                   textAlignVertical="top"
                   maxLength={10000}
                 />
-                
+
                 <View style={styles.textInputFooter}>
                   <Text style={styles.characterCount}>
                     {textInputContent.length}/10,000 characters
                   </Text>
-                  
+
                   <View style={styles.textInputActions}>
                     <TouchableOpacity
                       style={styles.textInputCancelButton}
@@ -1273,7 +1275,7 @@ const ChatScreen: React.FC<Props> = ({
                     >
                       <Text style={styles.textInputCancelText}>Cancel</Text>
                     </TouchableOpacity>
-                    
+
                     <TouchableOpacity
                       style={[
                         styles.textInputSubmitButton,
@@ -1345,9 +1347,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     marginTop: 2,
-  },
-  headerAction: {
-    padding: 8,
   },
   headerActionText: {
     fontSize: 20,
